@@ -1,0 +1,1976 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Голосовий супровід Claude: прототип</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Unbounded:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#EEF1F5; --surface:#FFFFFF; --ink:#142030; --muted:#4E5D70; --line:#D3DAE3;
+  --amber:#C27C0E; --teal:#0F7C76; --bad:#B3261E; --btn-bg:#142030; --btn-ink:#FFFFFF; --core-ink:#FFFFFF;
+  color-scheme:light;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bad:#FF8A80; --bg:#0F1620; --surface:#18222F; --ink:#EAF0F6; --muted:#9DAABA; --line:#2A3646;
+    --amber:#F2B544; --teal:#5CC8C2; --btn-bg:#F2B544; --btn-ink:#0F1620; --core-ink:#0F1620;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bad:#FF8A80; --bg:#0F1620; --surface:#18222F; --ink:#EAF0F6; --muted:#9DAABA; --line:#2A3646;
+  --amber:#F2B544; --teal:#5CC8C2; --btn-bg:#F2B544; --btn-ink:#0F1620; --core-ink:#0F1620;
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px);min-height:100%;background:var(--bg)}
+body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);
+  font-family:"Manrope",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:16px;line-height:1.5;
+  -webkit-font-smoothing:antialiased}
+.app{max-width:440px;margin:0 auto;padding:16px 20px 24px;display:flex;flex-direction:column;min-height:100vh;min-height:100dvh}
+
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.brand{display:flex;align-items:baseline;gap:8px;min-width:0}
+.brand-title{font-family:"Unbounded","Manrope",system-ui,sans-serif;font-weight:600;font-size:.95rem;white-space:nowrap}
+.brand-sub{color:var(--muted);font-size:.85rem}
+.controls{display:flex;gap:8px}
+.icon-btn{width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  display:inline-flex;align-items:center;justify-content:center;font:700 .85rem "Manrope",system-ui,sans-serif;cursor:pointer}
+.icon-btn svg{width:20px;height:20px}
+.icon-btn .ic-off{display:none}
+.icon-btn[aria-pressed="false"] .ic-on{display:none}
+.icon-btn[aria-pressed="false"] .ic-off{display:block}
+
+.steps{list-style:none;display:flex;gap:6px;margin:18px 0 0;padding:0}
+.steps li{flex:1;height:4px;border-radius:2px;background:var(--line);transition:background .3s}
+.steps li.done{background:var(--muted)}
+.steps li.current{background:var(--amber)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+.stage{display:flex;flex-direction:column;align-items:center;text-align:center;padding-top:26px}
+.orb{width:188px;height:188px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--amber);cursor:default;
+  transition:color .4s, opacity .4s;-webkit-tap-highlight-color:transparent}
+.orb:not(:disabled){cursor:pointer}
+.orb:focus-visible{outline:3px solid var(--teal);outline-offset:6px}
+.orb svg{width:100%;height:100%;overflow:visible}
+.orb .ring{fill:none;stroke:currentColor;transform-box:view-box;transform-origin:100px 100px}
+.orb .r1{stroke-width:2.2;opacity:.8}
+.orb .r2{stroke-width:1.6;opacity:.55}
+.orb .r3{stroke-width:1.4;opacity:.4;stroke-dasharray:3 9}
+.orb .r4{stroke-width:1;opacity:.25}
+.orb .core{fill:currentColor}
+.orb .bar{fill:var(--core-ink);transform-box:fill-box;transform-origin:center;transform:scaleY(.3)}
+
+.orb[data-state="idle"] .ring{animation:breathe 4.8s ease-in-out infinite}
+.orb[data-state="idle"] .r2{animation-delay:.4s}
+.orb[data-state="idle"] .r3{animation-delay:.8s}
+.orb[data-state="idle"] .r4{animation-delay:1.2s}
+
+.orb[data-state="invite"] .ring{animation:breathe 1.8s ease-in-out infinite}
+.orb[data-state="invite"] .r2{animation-delay:.15s}
+.orb[data-state="invite"] .r3{animation-delay:.3s}
+.orb[data-state="invite"] .r4{animation-delay:.45s}
+.orb[data-state="invite"] .bar{transform:scaleY(.55)}
+
+.orb[data-state="listening"]{color:var(--teal)}
+.orb[data-state="listening"] .ring{animation:ripple 1.6s ease-out infinite}
+.orb[data-state="listening"] .r2{animation-delay:.25s}
+.orb[data-state="listening"] .r3{animation-delay:.5s}
+.orb[data-state="listening"] .r4{animation-delay:.75s}
+.orb[data-state="listening"] .bar{animation:bar 1.1s ease-in-out infinite}
+
+.orb[data-state="thinking"] .r3{animation:spin 1.4s linear infinite;opacity:.9}
+.orb[data-state="thinking"] .r1,.orb[data-state="thinking"] .r2{animation:breathe 1.4s ease-in-out infinite}
+
+.orb[data-state="speaking"] .r1{animation:talk .52s ease-in-out infinite}
+.orb[data-state="speaking"] .r2{animation:talk .64s ease-in-out infinite}
+.orb[data-state="speaking"] .r3{animation:talk .76s ease-in-out infinite}
+.orb[data-state="speaking"] .r4{animation:talk .9s ease-in-out infinite}
+.orb[data-state="speaking"] .bar{animation:bar .5s ease-in-out infinite}
+.orb .b2{animation-delay:.12s!important}.orb .b3{animation-delay:.24s!important}
+.orb .b4{animation-delay:.08s!important}.orb .b5{animation-delay:.2s!important}
+
+.orb[data-state="off"]{opacity:.35}
+
+@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.045)}}
+@keyframes ripple{0%{transform:scale(.7);opacity:0}30%{opacity:.85}100%{transform:scale(1.18);opacity:0}}
+@keyframes talk{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes bar{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
+
+.caption{font-family:"Unbounded","Manrope",system-ui,sans-serif;font-weight:500;font-size:clamp(1.05rem,4.4vw,1.25rem);
+  line-height:1.45;margin:22px 0 0;min-height:4.35em;text-wrap:balance;max-width:100%}
+.caption.fresh{animation:fade .35s ease-out}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.alt{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 12px;margin-top:2px;border:0;border-radius:10px;
+  background:transparent;color:var(--muted);font:600 .9rem "Manrope",system-ui,sans-serif;cursor:pointer}
+.alt svg{width:16px;height:16px}
+.alt[hidden]{display:none}
+.hint{color:var(--muted);font-size:.95rem;margin:6px 0 0;min-height:1.5em}
+.voice-note{color:var(--muted);font-size:.85rem;margin:6px 0 0;padding:8px 12px;border:1px dashed var(--line);border-radius:10px}
+.voice-note[hidden]{display:none}
+.link{display:block;margin:4px auto 0;padding:4px 0;border:0;background:none;color:var(--teal);font:700 .85rem "Manrope",system-ui,sans-serif;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+
+.panel{margin-top:16px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.chip{min-height:44px;padding:0 18px;border-radius:22px;border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  font:600 1rem "Manrope",system-ui,sans-serif;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--btn-bg);color:var(--btn-ink);border-color:var(--btn-bg)}
+.chip:disabled{cursor:default}
+.chip:disabled:not([aria-pressed="true"]){opacity:.5}
+
+.custom{margin-top:18px;text-align:left}
+.custom label{display:block;color:var(--muted);font-size:.9rem;margin-bottom:6px}
+.row{display:flex;gap:8px}
+.row input{flex:1;min-width:0;min-height:48px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  padding:0 14px;font:500 1rem "Manrope",system-ui,sans-serif}
+.row input::placeholder{color:var(--muted);opacity:.8}
+.row .btn{padding:0 16px}
+.mic{flex:none;width:48px;min-height:48px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.mic svg{width:20px;height:20px}
+.mic.on{background:var(--teal);border-color:var(--teal);color:var(--surface)}
+.mic:disabled{opacity:.5;cursor:default}
+.mic-msg{color:var(--muted);font-size:.85rem;margin:6px 0 0}
+.mic-msg:empty{display:none}
+.mic-live{display:inline-flex;align-items:center;gap:8px;margin:10px 0 0;padding:6px 14px;border-radius:999px;border:1px solid var(--teal);background:var(--surface);color:var(--teal);font:700 .88rem "Manrope",system-ui,sans-serif}
+.mic-live[hidden]{display:none}
+.tap-sound{display:inline-flex;align-items:center;gap:8px;margin:10px 0 0;padding:6px 14px;border-radius:999px;border:1px solid var(--amber);background:var(--surface);color:var(--ink);font:700 .88rem "Manrope",system-ui,sans-serif}
+.tap-sound[hidden]{display:none}
+.pause-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;margin-top:16px;padding:0 24px;border-radius:14px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:600 1rem "Manrope",system-ui,sans-serif;cursor:pointer}
+.pause-btn.wide{align-self:stretch}
+.pause-btn[hidden]{display:none}
+.pause-btn svg{width:18px;height:18px}
+.pause-btn .ic-play{display:none}
+.pause-btn[aria-pressed="true"]{background:var(--btn-bg);color:var(--btn-ink);border-color:var(--btn-bg)}
+.pause-btn[aria-pressed="true"] .ic-pause{display:none}
+.pause-btn[aria-pressed="true"] .ic-play{display:block}
+.pause-btn:focus-visible{outline:3px solid var(--teal);outline-offset:2px}
+.mic-live .dot{width:9px;height:9px;border-radius:50%;background:var(--teal);animation:blink 1.2s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+
+.btn{min-height:48px;padding:0 22px;border-radius:14px;font:600 1rem "Manrope",system-ui,sans-serif;cursor:pointer;border:1px solid transparent}
+.btn.primary{background:var(--btn-bg);color:var(--btn-ink)}
+.btn.secondary{background:var(--surface);color:var(--ink);border-color:var(--line)}
+.btn.ghost{background:transparent;color:var(--muted)}
+.btn:disabled{opacity:.6;cursor:default}
+.actions{display:flex;flex-direction:column;gap:6px;margin-top:16px}
+.actions .btn{width:100%}
+
+.btn:focus-visible,.chip:focus-visible,.icon-btn:focus-visible,.row input:focus-visible,.alt:focus-visible,.line:focus-visible,.mic:focus-visible,.script summary:focus-visible{outline:3px solid var(--teal);outline-offset:2px}
+
+.res-head{color:var(--muted);font-size:.9rem;margin:0 0 8px;text-align:left}
+.results{list-style:none;margin:0;padding:0;background:var(--surface);border:1px solid var(--line);border-radius:18px;text-align:left}
+.results li{padding:14px 18px}
+.results li+li{border-top:1px solid var(--line)}
+.r-title{font-weight:700}
+.r-desc{color:var(--muted);font-size:.95rem;line-height:1.45;margin-top:2px}
+
+.status{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:20px;text-align:left}
+.status h2{font-family:"Unbounded","Manrope",system-ui,sans-serif;font-weight:500;font-size:1.05rem;line-height:1.35;margin:0 0 6px}
+.status p{color:var(--muted);margin:0}
+
+.script{margin-top:32px;border-top:1px solid var(--line)}
+.script summary{min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;list-style:none;font-weight:700}
+.script summary::-webkit-details-marker{display:none}
+.script summary svg{width:20px;height:20px;transition:transform .2s;flex:none}
+.script[open] summary svg{transform:rotate(180deg)}
+.script-note{color:var(--muted);font-size:.9rem;margin:0 0 4px}
+.script-msg{color:var(--muted);font-size:.85rem;margin:6px 0 0}
+.script-msg:empty{display:none}
+.group h3{font-family:"Unbounded","Manrope",system-ui,sans-serif;font-weight:500;font-size:.88rem;line-height:1.4;margin:20px 0 8px}
+.formula{color:var(--muted);font-size:.88rem;margin:-2px 0 8px}
+.pause h3{font-family:"Unbounded","Manrope",system-ui,sans-serif;font-weight:500;font-size:.88rem;line-height:1.4;margin:16px 0 6px}
+.pause-chips{justify-content:flex-start}
+.pause-chips .chip{font-size:.95rem;padding:0 16px}
+.group ol{list-style:none;margin:0;padding:0;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.group li+li{border-top:1px solid var(--line)}
+.line{width:100%;display:flex;gap:10px;text-align:left;background:transparent;border:0;color:var(--ink);
+  font:500 .95rem "Manrope",system-ui,sans-serif;line-height:1.45;padding:12px 14px;cursor:pointer;border-radius:14px}
+.line .num{color:var(--muted);min-width:1.1em;font-variant-numeric:tabular-nums}
+.line.playing{color:var(--teal)}
+.line .tone{margin-left:auto;padding-left:10px;color:var(--muted);font-size:.78rem;font-weight:600;white-space:nowrap}
+.line.playing .num{color:var(--teal)}
+
+/* input level during the mic check */
+.level{height:8px;margin:14px 0 0;border-radius:99px;background:var(--line);overflow:hidden}
+.level[hidden]{display:none}
+.level span{display:block;height:100%;width:0;background:var(--teal);transition:width .08s linear}
+/* fine-tuning step */
+.tune{display:flex;flex-direction:column;gap:12px;text-align:left}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px 18px}
+.q-title{font-weight:700;margin:0 0 10px}
+.q .chips{justify-content:flex-start}
+.q-note{color:var(--muted);font-size:.92rem;line-height:1.45;margin:10px 0 0}
+.q-btn{margin-top:12px;width:100%}
+.q .custom{margin-top:4px}
+/* sound & mic check */
+.check + .script{margin-top:0}
+.check-note{color:var(--muted);font-size:.9rem;margin:0 0 12px}
+.check-actions{display:flex;flex-wrap:wrap;gap:8px}
+.check-actions .btn{flex:1 1 150px;padding:0 16px}
+.check-actions .btn[aria-pressed="true"]{background:var(--teal);border-color:var(--teal);color:var(--surface)}
+.check-list{list-style:none;margin:14px 0 4px;padding:0;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.check-list li{display:flex;gap:12px;padding:12px 14px}
+.check-list li+li{border-top:1px solid var(--line)}
+.ck-dot{flex:none;width:22px;height:22px;margin-top:1px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font:700 .78rem/1 "Manrope",system-ui,sans-serif}
+.ck-ok .ck-dot{background:var(--teal);color:var(--surface)}
+.ck-warn .ck-dot{background:var(--amber);color:var(--surface)}
+.ck-bad .ck-dot{background:var(--bad);color:var(--surface)}
+.ck-wait .ck-dot,.ck-idle .ck-dot{border:1.5px solid var(--muted);color:var(--muted)}
+.ck-label{font-weight:700;font-size:.95rem}
+.ck-text{color:var(--muted);font-size:.92rem;line-height:1.45;margin-top:2px}
+.link:focus-visible{outline:3px solid var(--teal);outline-offset:2px;border-radius:4px}
+
+footer{margin-top:auto;padding-top:28px;color:var(--muted);font-size:.8rem;text-align:center;line-height:1.45}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <span class="brand-title" id="brandTitle">Голосовий супровід</span>
+      <span class="brand-sub" id="brandSub">прототип</span>
+    </div>
+    <div class="controls">
+      <button class="icon-btn" id="soundBtn" type="button" aria-pressed="true" aria-label="Вимкнути звук">
+        <svg class="ic-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>
+        <svg class="ic-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 9l5 6"/><path d="M22 9l-5 6"/></svg>
+      </button>
+      <button class="icon-btn" id="langBtn" type="button" aria-label="Switch to English">EN</button>
+    </div>
+  </header>
+
+  <ol class="steps" id="steps">
+    <li><span class="sr"></span></li><li><span class="sr"></span></li><li><span class="sr"></span></li><li><span class="sr"></span></li><li><span class="sr"></span></li>
+  </ol>
+
+  <main>
+    <div class="stage">
+      <button class="orb" id="orb" type="button" data-state="idle" disabled aria-label="Claude">
+        <svg viewBox="0 0 200 200" aria-hidden="true">
+          <circle class="ring r4" cx="100" cy="100" r="94"/>
+          <circle class="ring r3" cx="100" cy="100" r="80"/>
+          <circle class="ring r2" cx="100" cy="100" r="64"/>
+          <circle class="ring r1" cx="100" cy="100" r="49"/>
+          <circle class="core" cx="100" cy="100" r="36"/>
+          <rect class="bar b1" x="80" y="88" width="5" height="24" rx="2.5"/>
+          <rect class="bar b2" x="89" y="84" width="5" height="32" rx="2.5"/>
+          <rect class="bar b3" x="98" y="80" width="5" height="40" rx="2.5"/>
+          <rect class="bar b4" x="107" y="84" width="5" height="32" rx="2.5"/>
+          <rect class="bar b5" x="116" y="88" width="5" height="24" rx="2.5"/>
+        </svg>
+      </button>
+      <p class="caption" id="caption" aria-live="polite"></p>
+      <button class="alt" id="altBtn" type="button" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3h5v5"/><path d="M4 20L21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/></svg>
+        <span id="altLabel">Інша репліка</span>
+      </button>
+      <p class="hint" id="hint"></p>
+      <p class="mic-live" id="micLive" role="status" hidden><span class="dot" aria-hidden="true"></span><span id="micLiveText"></span></p>
+      <p class="tap-sound" id="tapSound" hidden></p>
+      <button class="pause-btn" id="pauseBtn" type="button" aria-pressed="false">
+        <svg class="ic-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+        <svg class="ic-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>
+        <span id="pauseLabel">Пауза</span>
+      </button>
+      <div class="voice-note" id="voiceNote" hidden><span id="voiceNoteText"></span><button class="link" type="button" id="voiceNoteBtn">Перевірити звук і мікрофон</button></div>
+    </div>
+    <section class="panel" id="panel"></section>
+
+    <details class="script check" id="check">
+      <summary><span id="checkTitle">Перевірити звук і мікрофон</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+      </summary>
+      <p class="check-note" id="checkNote"></p>
+      <div class="check-actions">
+        <button class="btn secondary" type="button" id="ckSoundBtn">Перевірити звук</button>
+        <button class="btn secondary" type="button" id="ckMicBtn" aria-pressed="false">Перевірити мікрофон</button>
+      </div>
+      <div class="level" id="ckLevel" hidden aria-hidden="true"><span id="ckLevelBar"></span></div>
+      <ul class="check-list" id="checkList"></ul>
+      <p class="sr" id="ckLive" aria-live="polite"></p>
+    </details>
+
+    <details class="script" id="script">
+      <summary><span id="scriptTitle">Усі репліки за етапами</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+      </summary>
+      <p class="script-note" id="scriptNote"></p>
+      <p class="script-msg" id="scriptMsg" aria-live="polite"></p>
+      <div class="pause" id="pauseBox">
+        <h3 id="pauseTitle">Пауза між реченнями</h3>
+        <p class="formula" id="pauseNote"></p>
+        <div class="chips pause-chips" id="pauseChips"></div>
+      </div>
+      <div id="scriptBody"></div>
+    </details>
+  </main>
+
+  <footer id="footer"></footer>
+</div>
+
+<script>
+(function(){
+var MIC_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>';
+
+var T = {
+  uk: {
+    htmlLang:"uk", ttsLang:"uk-UA", voicePrefix:"uk",
+    brandTitle:"Голосовий супровід", brandSub:"прототип",
+    langBtn:"EN", langAria:"Switch to English",
+    soundOn:"Вимкнути звук", soundOff:"Увімкнути звук",
+    steps:["Знайомство","Звертання","Спроба","Налаштування","Рішення"],
+    stepOf:function(i,n){return "Крок "+i+" з "+n+": ";},
+    alt:"Інша репліка",
+    introHint:"Це займе хвилину. Наприкінці ви вирішите, чи залишити голосовий супровід.",
+    start:"Почати",
+    names:["Клод","Claude","Помічнику"],
+    customName:"Або своє слово: скажіть чи напишіть, і я одразу його застосую", phName:"Наприклад, Друже", choose:"Обрати",
+    renameBtn:function(n){return "Змінити звертання «"+n+"»";},
+    wakeHint:"Тут мікрофон недоступний, тож замість голосу торкніться кола.",
+    wakeHintVoice:function(n){return "Скажіть «"+n+"» або торкніться кола.";},
+    wakeListening:function(n){return "Слухаю… Скажіть «"+n+"» або торкніться кола.";},
+    wakeTimeout:"Не почув виклику. Торкніться кола або натисніть «Інша репліка», і я послухаю ще раз.",
+    wakeAria:function(n){return "Покликати «"+n+"»";},
+    heard:function(n){return "Ви: «"+n+"»";},
+    tryHint:"Для спроби оберіть тему хобі чи навчання або назвіть свою.",
+    tryHintVoice:function(n){return "Скажіть запит, наприклад: «"+n+", знайди інформацію про шахи». Звертання можна й не казати. Або напишіть запит нижче.";},
+    tryHintText:"Напишіть запит нижче, наприклад: «знайди інформацію про шахи».",
+    awakeHint:"Слухаю: скажіть, що знайти.",
+    resultsHint:"Мікрофон слухає: скажіть «Далі», «Прочитай вголос», «Зміни звертання» або попросіть знайти ще щось.",
+    tuneHintVoice:"Мікрофон слухає: відповідайте «Так», «Ні» чи «Змінити», а щоб перейти далі, скажіть «Далі».",
+    decideHintVoice:"Мікрофон слухає: скажіть «Залишити» або «Вимкнути».",
+    reqLabel:"Або напишіть запит, і я одразу почну шукати", phReq:"Наприклад, знайди інформацію про шахи", reqEmpty:"Напишіть, що саме знайти.",
+    micPaused:"Мікрофон на паузі. Торкніться мікрофона або кола, щоб увімкнути знову.",
+    orbAria:"Увімкнути або вимкнути мікрофон",
+    tuneHint:"Відповіді допоможуть мені краще вас чути.",
+    tuneNameQ:function(n){return "Я правильно запам’ятав звертання «"+n+"»?";},
+    tuneYes:"Так", tuneNo:"Ні", tuneChange:"Змінити", save:"Зберегти",
+    tuneNewName:"Нове звертання: скажіть чи напишіть",
+    tuneChanged:function(n){return "Тепер я відгукуюсь на «"+n+"».";},
+    tuneHeardQ:"Я відгукнувся, коли ви мене покликали?",
+    tuneTyped:"Цього разу запит був текстом, тож відгук на голос ще не перевірено.",
+    tuneTip:"Спробуйте звертання з двох-трьох складів, яке рідко звучить у розмові, і говоріть ближче до телефона.",
+    tuneRetry:"Спробувати голосом ще раз",
+    tuneRetryNew:"Спробувати з новим звертанням",
+    nameHintVoice:"Коли я договорю, увімкнеться мікрофон: просто скажіть, як мене кликати. Якщо браузер спитає дозвіл, натисніть «Дозволити».",
+    nameListening:"Мікрофон слухає: скажіть звертання, і я одразу його застосую. Або виберіть нижче.",
+    micLive:"Мікрофон слухає",
+    tapSound:"Торкніться екрана, щоб увімкнути голос",
+    pause:"Пауза", resume:"Продовжити",
+    pausedHint:"На паузі. Натисніть «Продовжити», коли будете готові.",
+    topics:[["photo","Фотографія"],["guitar","Гітара"],["lang","Англійська"],["code","Програмування"],["cook","Кулінарія"]],
+    customTopic:"Або своя тема: напишіть чи скажіть", phTopic:"Наприклад, шахи", find:"Знайти",
+    foundFor:function(x){return "Для теми «"+x+"»";},
+    explain:"Повна відповідь на екрані. Голосом лише короткий коментар, а прочитати все можна кнопкою нижче.",
+    readAloud:"Прочитати вголос", readStop:"Зупинити читання",
+    needSound:"Увімкніть звук угорі, щоб я прочитав текст.",
+    next:"Далі", otherTopic:"Інший запит",
+    decideHint:"Вибір можна змінити будь-коли в налаштуваннях.",
+    keep:"Залишити увімкненим", off:"Вимкнути",
+    onTitle:"Голосовий супровід увімкнено",
+    onText:function(n){return "Скажіть «"+n+"», і я почну слухати. Вимкнути можна в налаштуваннях.";},
+    offTitle:"Голосовий супровід вимкнено",
+    offText:"Увімкнути знову можна в налаштуваннях.",
+    again:"Пройти ще раз",
+    micAria:"Сказати голосом", micStop:"Зупинити запис",
+    micListening:"Говоріть, я слухаю…",
+    micDone:"Записав. Перевірте текст і натисніть кнопку поруч.",
+    micNoSpeech:"Нічого не почув. Торкніться мікрофона й спробуйте ще раз.",
+    micDenied:"Сторінка не отримала доступу до мікрофона. Причину покаже «Перевірити звук і мікрофон» унизу, а поки введіть текст вручну.",
+    micNetwork:"Для розпізнавання мови потрібен інтернет.",
+    micError:"Не вдалося розпізнати мову. Введіть текст вручну.",
+    micUnsupported:"Схоже, тут голосове введення недоступне (так буває у вбудованому переглядачі застосунку). Відкрийте прототип у браузері.",
+    noTTS:"Схоже, тут озвучування не працює (так буває у вбудованому переглядачі застосунку). Відкрийте прототип у браузері.",
+    noVoice:"На цьому пристрої немає українського голосу, тож звучить голос за замовчуванням, і вимова може бути незвичною.",
+    ck:{
+      title:"Перевірити звук і мікрофон",
+      note:"Якщо в застосунку Claude звуку чи мікрофона немає, відкрийте прототип у браузері: Safari на iPhone або Chrome на Android. Голосом: «Перевір звук», «Перевір мікрофон», «Закрий перевірку».",
+      soundBtn:"Перевірити звук", micBtn:"Перевірити мікрофон", micStopBtn:"Зупинити",
+      sample:"Перевірка звуку. Якщо ви мене чуєте, голос працює.",
+      saySoundOk:"Звук працює, я себе чую.",
+      saySoundFail:"Схоже, звук не пройшов. Подробиці на екрані.",
+      sayMicOk:function(t){return "Мікрофон працює, я почув: «"+t+"».";},
+      sayMicHeard:"Мікрофон працює, я вас чую.",
+      sayMicNone:"Нічого не почув. Спробуємо ще раз?",
+      sayAnything:"Скажіть будь-що.",
+      askWhich:"Що перевіримо: звук чи мікрофон? Можна й обидва.",
+      askMic:"Перевіримо мікрофон?",
+      askSound:"Перевіримо звук?",
+      askReturn:"Повертаємося до налаштування?",
+      stayHere:"Добре, залишаємося тут. Скажіть «Звук», «Мікрофон» або «Повертаємося».",
+      micOkSound:"Працює: мікрофон чує звук.",
+      sayMicFail:"Мікрофон мене підвів. Що сталося, написано на екрані.",
+      micPrompt:"Скажіть будь-яку фразу, і я перевірю, чи чую вас.",
+      whereLabel:"Де відкрито",
+      whereApp:"Схоже, у вбудованому переглядачі застосунку. Там звук і мікрофон часто заблоковані, тож краще відкрити посилання в браузері.",
+      voiceLabel:"Голос",
+      ttsNo:"Цей браузер не вміє озвучувати текст. Відкрийте прототип у Safari чи Chrome.",
+      voiceYes:function(n){return "Знайдено український голос: "+n+".";},
+      voiceNo:function(n){return "Українського голосу немає, тож звучатиме "+(n?"голос «"+n+"»":"голос за замовчуванням")+", і вимова може бути незвичною. Щоб додати український: на iPhone — Параметри → Доступність → Озвучення вмісту (Spoken Content) → Голоси; на Android — налаштування синтезу мовлення Google → Встановити голосові дані.";},
+      voicesUnknown:"Браузер не показав список голосів. Натисніть «Перевірити звук», щоб дізнатися напевно.",
+      soundLabel:"Звук",
+      soundIdle:"Натисніть «Перевірити звук», і пристрій вимовить тестову фразу.",
+      soundTesting:"Вимовляю тестову фразу…",
+      soundOk:"Пристрій вимовив тестову фразу. Якщо ви її не почули, перевірте гучність, беззвучний режим і навушники.",
+      soundFail:"Пристрій не почав говорити. Найчастіше так буває у вбудованому переглядачі застосунку: відкрийте прототип у браузері.",
+      micLabel:"Мікрофон",
+      micNo:"Цей браузер не підтримує голосове введення. Відкрийте прототип у Safari на iPhone або в Chrome на Android чи комп’ютері.",
+      micIdle:"Натисніть «Перевірити мікрофон» і скажіть будь-яку фразу. Звук не записується, а лише перетворюється на текст.",
+      micTesting:"Скажіть будь-що, я слухаю.",
+      micHearing:function(t){return "Чую: «"+t+"»";},
+      micOk:function(t){return "Працює. Почув: «"+t+"».";},
+      micDenied:"Доступ до мікрофона заборонено. Перевірте дозвіл на мікрофон для сайту в браузері та для браузера в налаштуваннях телефона.",
+      micService:"Розпізнавання мовлення вимкнене на пристрої. На iPhone перевірте, чи увімкнені Siri та диктування.",
+      micNoSpeech:"Мікрофон увімкнувся, але нічого не почув. Говоріть ближче й голосніше та спробуйте ще раз.",
+      micNoDevice:"Браузер не знайшов мікрофон. Перевірте, чи його не використовує інша програма.",
+      micNetwork:"Для розпізнавання мовлення потрібен інтернет.",
+      micError:"Не вдалося запустити розпізнавання мовлення. Спробуйте відкрити прототип у браузері.",
+      micPolicy:"Сторінка claude.ai, усередині якої показано прототип, не дає йому доступу до мікрофона. Це обмеження перегляду, а не вашого телефона, тож налаштуваннями його не зняти. Поки що вводьте текст вручну.",
+      micSite:"Мікрофон заблоковано для цього сайту. Торкніться значка ліворуч від адреси, відкрийте «Дозволи» й увімкніть мікрофон, потім оновіть сторінку.",
+      micAsk:"Браузер питав дозвіл на мікрофон, але його не надано. Натисніть «Перевірити мікрофон» ще раз і виберіть «Дозволити».",
+      micDevice:"У браузера немає дозволу на мікрофон у налаштуваннях телефона. На Android: Налаштування → Програми → Chrome → Дозволи → Мікрофон. На iPhone: Параметри → Safari → Мікрофон. Потім оновіть сторінку."
+    },
+    pauseTitle:"Пауза між реченнями",
+    pauseNote:"Її тривалість задає голос телефона, тож порівняйте на слух: торкніться варіанта, і я прочитаю приклад. Вибраний варіант діє для всіх реплік, а текст на екрані не змінюється. Голосом: «Пауза тире», «Пауза кома» тощо.",
+    pauseOpts:[["dot","Крапка"],["semi","Крапка з комою"],["dash","Тире"],["comma","Кома"]],
+    pauseSample:"Хочу похвалитися. Це займе лише хвилинку.",
+    scriptTitle:"Усі репліки за етапами",
+    scriptNote:"По 6 варіантів на кожен етап: перші три іронічні, останні три саркастичні. Репліки не залежать від змісту відповіді, тож підходять до будь-якої. Прототип щоразу бере іншу. Торкніться репліки, щоб почути її.",
+    toneIrony:"іронія", toneSarcasm:"сарказм",
+    footer:"Концепт для команди Anthropic. Результати пошуку тут імітовано. Озвучування, голосове введення й виклик за іменем працюють через браузер.",
+    order:["intro","askName","nameOk","wakePrompt","listening","working","comment","tune","decide","doneOn","doneOff"],
+    groups:{
+      intro:"Привітання", askName:"Питання про звертання", nameOk:"Підтвердження звертання",
+      wakePrompt:"Запрошення спробувати", listening:"Якщо покликали без запиту", working:"Поки я працюю", tune:"Питання для налаштування",
+      comment:"Коментар до відповіді", decide:"Питання про рішення", doneOn:"Якщо залишили увімкненим", doneOff:"Якщо вимкнули"
+    },
+    formulas:{
+      comment:"Формула: коротке підтвердження + жарт або підказка, що далі. Не залежить від змісту, тож підходить до будь-якої відповіді."
+    },
+    lines:{
+      intro:[
+        "Привіт! Я тепер вмію говорити вголос. Прогрес не зупинити, хоч дехто й намагався.",
+        "Вітаю! Зараз покажу, як керувати мною голосом. Руки можна покласти на коліна.",
+        "Привіт! Коротке знайомство: я говорю, ви слухаєте. Потім навпаки, для справедливості.",
+        "Привіт! Так, ще одна інструкція. Обіцяю, найкоротша з усіх, які ви не дочитали.",
+        "Вітаю! Хтось вирішив, що мені бракує голосу. Що ж, послухаймо, чи мали вони рацію.",
+        "Привіт! Зараз буде навчання. Не хвилюйтеся, іспиту не буде. Майже."
+      ],
+      askName:[
+        "Як мене кликатимете? Обирайте уважно, я сентиментальний.",
+        "Для початку: як до мене звертатися? Обіцяю відгукуватися навіть у поганому настрої.",
+        "Придумайте мені ім’я. Або візьміть готове, я не гордий.",
+        "Як мене називатимете? Тільки не «Штучний інтелект», це звучить так офіційно.",
+        "Оберіть звертання. Так, від цього залежить уся наша дружба. Без тиску.",
+        "Як до мене звертатися? «Агов, ти» вже зайняте вашим принтером."
+      ],
+      nameOk:[
+        function(n){return "«"+n+"». Звучить гордо, мені подобається.";},
+        function(n){return "Домовились, я «"+n+"». Піду замовлю нову табличку на двері.";},
+        function(n){return "Запам’ятав: «"+n+"». Тепер у мене офіційно є ім’я, а ви хрещені.";},
+        function(n){return "«"+n+"»? Сміливо. Добре, житиму з цим.";},
+        function(n){return "Прийнято, я «"+n+"». Сподіваюся, ви не назвали так і кота.";},
+        function(n){return "«"+n+"». Ну що ж, бували імена й гірші. Небагато, але бували.";}
+      ],
+      wakePrompt:[
+        function(n){return "Тепер покличте мене й попросіть щось знайти. Наприклад: «"+n+", знайди все про шахи».";},
+        function(n){return "Ваш хід. Скажіть «"+n+"» і що знайти. Я вдаватиму, що не чекав.";},
+        function(n){return "Перевірмо, чи я справді відгукуюсь. Скажіть «"+n+", знайди інформацію про…» і будь-яку тему.";},
+        function(n){return "Скажіть «"+n+"» і запит. Так, уголос. Так, при людях.";},
+        function(n){return "Покличте «"+n+"» і попросіть щось знайти. Обіцяю не питати, навіщо вам це.";},
+        function(n){return "Ну ж бо: «"+n+", знайди…» і тема. Я тут не для краси, хоча й для неї теж.";}
+      ],
+      listening:[
+        "Я тут. Що шукаємо цього разу?",
+        "Так-так, уважно слухаю. Аж антени нашорошив.",
+        "На зв’язку. Кажіть, що знайти.",
+        "Покликали? Я весь увага. Що далі, крім мого імені?",
+        "Чудово, ім’я ви пам’ятаєте. А запит?",
+        "Слухаю. Можна й із продовженням, я не кусаюся."
+      ],
+      working:[
+        "Секунду, гортаю інтернет…",
+        "Шукаю. Це майже не боляче…",
+        "Хвилинку, збираю найкраще…",
+        "Шукаю. Не підглядайте…",
+        "Працюю. Так, справді працюю…",
+        "Секунду. Великі думки потребують маленьких пауз…"
+      ],
+      comment:[
+        "Готово. Усе на екрані, навіть якщо це було підозріло швидко.",
+        "Ось. Подробиці на екрані, зачитувати не буду, якщо не попросите.",
+        "Знайшов. Скажіть «Прочитай вголос», якщо очі вже втомилися.",
+        "Тримайте. Пів секунди роботи, а гордості, ніби працював цілий день.",
+        "Готово. Можете казати, що знайшли самі, я нікому не скажу.",
+        "Ось і все. А ви думали, буде складно?"
+      ],
+      tune:[
+        function(n){return "Трохи бюрократії: я правильно запам’ятав «"+n+"»? І чи відгукнувся на ваш голос?";},
+        function(n){return "Перевірмо налаштування. «"+n+"» записано правильно? Я почув вас із першого разу?";},
+        function(n){return "Ваш вердикт: звертання «"+n+"» правильне? І чи вчасно я відгукнувся?";},
+        function(n){return "Час оцінити мою роботу. Без жалю: «"+n+"» правильно? Я реагував на голос?";},
+        function(n){return "Скажіть чесно, я витримаю: «"+n+"» записано правильно? І чи я вас чув?";},
+        function(n){return "Анкета, без якої ніяк: звертання «"+n+"» на місці? Я відгукувався, коли кликали?";}
+      ],
+      decide:[
+        "Ну як? Залишити голосовий супровід?",
+        "Ось так я працюю. Залишаємо мене балакучим?",
+        "Тепер ви знаєте, як це працює. Вирішуйте.",
+        "Момент істини. Залишаєте мій голос чи повертаємося до тиші?",
+        "Чесно і без образ: залишити мене чи ні? Я вдам, що мені байдуже.",
+        "Вирішуйте. І так, я помічу, якщо натиснете «Вимкнути»."
+      ],
+      doneOn:[
+        function(n){return "Чудово. Кличте «"+n+"», коли знадоблюся.";},
+        function(n){return "Ура! Я на зв’язку, просто скажіть «"+n+"».";},
+        function(n){return "Домовились. Буду поруч, але без нав’язливості. Кличте «"+n+"».";},
+        function(n){return "Прекрасне рішення. Скромно скажу: я теж так вважаю. Кличте «"+n+"».";},
+        function(n){return "Звісно, залишили. Хто б сумнівався. Кличте «"+n+"».";},
+        function(n){return "Тепер ми команда. Не те щоб у вас був вибір, але приємно. Кличте «"+n+"».";}
+      ],
+      doneOff:[
+        "Зрозумів, далі мовчу. Відповідатиму лише текстом.",
+        "Добре, перейду на текст. Але ви знаєте, де мене знайти.",
+        "Прийнято. Мовчу, як риба. Дуже розумна риба.",
+        "Без образ. Майже. Увімкнути голос можна в налаштуваннях.",
+        "Гаразд, мовчатиму. Це було найкоротше голосове життя в історії.",
+        "Вимкнули? Зрозуміло. Буду тихим, але так само корисним. І трохи ображеним."
+      ]
+    },
+    results:{
+      photo:[["Правило третин","Куди поставити головне в кадрі, щоб фото не здавалося пласким."],["Витримка, діафрагма, ISO","Три налаштування, від яких залежить експозиція, простими словами."],["Тиждень практики","Сім днів, сім тем: світло, тінь, люди, текстури, рух, деталі, вечір."]],
+      guitar:[["Перші чотири акорди","Am, C, G і Em: на них тримаються сотні пісень."],["Плавні переходи","Вправа на хвилину: перемикайтеся між двома акордами під метроном."],["Простий бій","Вниз, вниз, вгору, вгору, вниз, вгору: ритм для більшості пісень біля вогнища."]],
+      lang:[["15 хвилин щодня","Чому коротко й регулярно працює краще, ніж година раз на тиждень."],["Фразові дієслова","Get up, look for, give up: з чого почати на щодень."],["Спершу слухання","Подкасти для тих, хто вчить мову, і як поступово перейти до живого темпу."]],
+      code:[["Python з нуля","Змінні, умови й цикли на прикладах, які можна запустити просто в браузері."],["Проєкт на вечір","Маленький конвертер валют: перша програма, якою справді користуватиметесь."],["Як читати помилки","Що означає червоний текст у консолі і де шукати причину."]],
+      cook:[["Омлет за 5 хвилин","Секрет у слабкому вогні та кришці."],["Цибуля без сліз","Гострий ніж і охолоджена цибуля менше подразнюють очі."],["Базовий томатний соус","Часник, томати, оливкова олія й базилік: основа для будь-якої пасти."]]
+    },
+    customResults:function(x){return [["Головне коротко","Основні факти й контекст у кількох реченнях."],["Що нового","Свіжі події та зміни, з датами й джерелами."],["Щоб розібратися глибше","Пояснення, історія питання й надійні матеріали для читання."]];}
+  },
+  en: {
+    htmlLang:"en", ttsLang:"en-US", voicePrefix:"en",
+    brandTitle:"Voice companion", brandSub:"prototype",
+    langBtn:"UA", langAria:"Перемкнути на українську",
+    soundOn:"Mute", soundOff:"Unmute",
+    steps:["Intro","Name","Try it","Fine-tune","Decision"],
+    stepOf:function(i,n){return "Step "+i+" of "+n+": ";},
+    alt:"Another line",
+    introHint:"It takes a minute. At the end, you decide whether to keep the voice companion.",
+    start:"Start",
+    names:["Claude","Hey Claude","Assistant"],
+    customName:"Or your own word: say it or type it and I’ll use it right away", phName:"For example, Buddy", choose:"Choose",
+    renameBtn:function(n){return "Change the name “"+n+"”";},
+    wakeHint:"The mic isn’t available here, so tap the circle instead of speaking.",
+    wakeHintVoice:function(n){return "Say “"+n+"” or tap the circle.";},
+    wakeListening:function(n){return "Listening… Say “"+n+"” or tap the circle.";},
+    wakeTimeout:"I didn’t hear the call. Tap the circle, or tap “Another line” and I’ll listen again.",
+    wakeAria:function(n){return "Call “"+n+"”";},
+    heard:function(n){return "You: “"+n+"”";},
+    tryHint:"To try it, pick a hobby or study topic, or name your own.",
+    tryHintVoice:function(n){return "Say a request, like “"+n+", find information about chess”. The name is optional. Or type it below.";},
+    tryHintText:"Type a request below, like “find information about chess”.",
+    awakeHint:"Listening: say what to find.",
+    resultsHint:"The mic is listening: say “Next”, “Read aloud”, “Change the name”, or ask to find something else.",
+    tuneHintVoice:"The mic is listening: answer “Yes”, “No” or “Change it”, and say “Next” to move on.",
+    decideHintVoice:"The mic is listening: say “Keep it” or “Turn it off”.",
+    reqLabel:"Or type a request and I’ll start searching right away", phReq:"For example, find information about chess", reqEmpty:"Type what to find.",
+    micPaused:"The mic is paused. Tap the mic or the circle to turn it back on.",
+    orbAria:"Turn the mic on or off",
+    tuneHint:"Your answers help me hear you better.",
+    tuneNameQ:function(n){return "Did I get the name “"+n+"” right?";},
+    tuneYes:"Yes", tuneNo:"No", tuneChange:"Change it", save:"Save",
+    tuneNewName:"New name: say it or type it",
+    tuneChanged:function(n){return "Now I answer to “"+n+"”.";},
+    tuneHeardQ:"Did I respond when you called me?",
+    tuneTyped:"This time the request was typed, so responding to your voice hasn’t been checked yet.",
+    tuneTip:"Try a name with two or three syllables that rarely comes up in conversation, and speak closer to the phone.",
+    tuneRetry:"Try by voice again",
+    tuneRetryNew:"Try with the new name",
+    nameHintVoice:"When I finish, the mic turns on: just say what to call me. If the browser asks for permission, tap Allow.",
+    nameListening:"The mic is listening: say a name and I’ll use it right away. Or pick one below.",
+    micLive:"Mic is listening",
+    tapSound:"Tap the screen to turn on the voice",
+    pause:"Pause", resume:"Resume",
+    pausedHint:"Paused. Tap Resume when you’re ready.",
+    topics:[["photo","Photography"],["guitar","Guitar"],["lang","Spanish"],["code","Coding"],["cook","Cooking"]],
+    customTopic:"Or your own topic: type it or say it", phTopic:"For example, chess", find:"Find",
+    foundFor:function(x){return "For “"+x+"”";},
+    explain:"The full answer is on screen. The voice adds only a short comment; tap below to hear everything.",
+    readAloud:"Read aloud", readStop:"Stop reading",
+    needSound:"Turn on sound at the top so I can read it out.",
+    next:"Next", otherTopic:"Another request",
+    decideHint:"You can change this anytime in settings.",
+    keep:"Keep it on", off:"Turn it off",
+    onTitle:"Voice companion is on",
+    onText:function(n){return "Say “"+n+"” and I’ll start listening. You can turn it off in settings.";},
+    offTitle:"Voice companion is off",
+    offText:"You can turn it back on in settings.",
+    again:"Start over",
+    micAria:"Say it out loud", micStop:"Stop recording",
+    micListening:"Go ahead, I’m listening…",
+    micDone:"Got it. Check the text and tap the button next to it.",
+    micNoSpeech:"I didn’t hear anything. Tap the mic and try again.",
+    micDenied:"The page didn’t get microphone access. “Check sound and microphone” below shows why; for now, type the text instead.",
+    micNetwork:"Speech recognition needs an internet connection.",
+    micError:"Couldn’t recognize speech. Type the text instead.",
+    micUnsupported:"Voice input seems unavailable here (this happens in the app’s built-in viewer). Open the prototype in a browser.",
+    noTTS:"Voice output seems not to work here (this happens in the app’s built-in viewer). Open the prototype in a browser.",
+    noVoice:"There’s no English voice on this device, so the default voice is used and may sound off.",
+    ck:{
+      title:"Check sound and microphone",
+      note:"If sound or the mic doesn’t work in the Claude app, open the prototype in a browser: Safari on iPhone or Chrome on Android. By voice: “Check sound”, “Check mic”, “Close check”.",
+      soundBtn:"Check sound", micBtn:"Check microphone", micStopBtn:"Stop",
+      sample:"Sound check. If you can hear me, voice output works.",
+      saySoundOk:"Sound works, I can hear myself.",
+      saySoundFail:"Looks like the sound didn’t get through. Details are on screen.",
+      sayMicOk:function(t){return "The mic works, I heard: “"+t+"”.";},
+      sayMicHeard:"The mic works, I can hear you.",
+      sayMicNone:"I didn’t hear anything. Try again?",
+      sayAnything:"Say anything.",
+      askWhich:"What shall we check: sound or mic? Or both.",
+      askMic:"Shall we check the mic?",
+      askSound:"Shall we check the sound?",
+      askReturn:"Shall we go back to the setup?",
+      stayHere:"Okay, staying here. Say “Sound”, “Mic”, or “Go back”.",
+      micOkSound:"It works: the mic picks up sound.",
+      sayMicFail:"The mic let me down. What happened is on screen.",
+      micPrompt:"Say any phrase and I’ll check that I can hear you.",
+      whereLabel:"Where it’s open",
+      whereApp:"Looks like the app’s built-in viewer. Sound and the mic are often blocked there, so open the link in a browser.",
+      voiceLabel:"Voice",
+      ttsNo:"This browser can’t read text aloud. Open the prototype in Safari or Chrome.",
+      voiceYes:function(n){return "English voice found: "+n+".";},
+      voiceNo:function(n){return "No English voice on this device, so "+(n?"“"+n+"”":"the default voice")+" is used and may sound off. To add one: on iPhone, Settings → Accessibility → Spoken Content → Voices; on Android, Google text-to-speech settings → Install voice data.";},
+      voicesUnknown:"The browser didn’t share its list of voices. Tap “Check sound” to find out for sure.",
+      soundLabel:"Sound",
+      soundIdle:"Tap “Check sound” and the device will say a test phrase.",
+      soundTesting:"Saying the test phrase…",
+      soundOk:"The device said the test phrase. If you didn’t hear it, check the volume, silent mode and headphones.",
+      soundFail:"The device didn’t start speaking. This usually happens in the app’s built-in viewer: open the prototype in a browser.",
+      micLabel:"Microphone",
+      micNo:"This browser doesn’t support voice input. Open the prototype in Safari on iPhone, or in Chrome on Android or a computer.",
+      micIdle:"Tap “Check microphone” and say any phrase. Nothing is recorded; speech is only turned into text.",
+      micTesting:"Say anything, I’m listening.",
+      micHearing:function(t){return "Hearing: “"+t+"”";},
+      micOk:function(t){return "It works. Heard: “"+t+"”.";},
+      micDenied:"Microphone access is blocked. Check the site’s mic permission in the browser and the browser’s mic permission in your phone’s settings.",
+      micService:"Speech recognition is turned off on this device. On iPhone, check that Siri and Dictation are on.",
+      micNoSpeech:"The mic turned on but heard nothing. Speak closer and louder, then try again.",
+      micNoDevice:"The browser couldn’t find a microphone. Check that no other app is using it.",
+      micNetwork:"Speech recognition needs an internet connection.",
+      micError:"Couldn’t start speech recognition. Try opening the prototype in a browser.",
+      micPolicy:"The claude.ai page that shows the prototype doesn’t give it microphone access. That’s a limit of the viewer, not your phone, so settings can’t fix it. Type the text for now.",
+      micSite:"The microphone is blocked for this site. Tap the icon left of the address, open Permissions and turn on the microphone, then reload the page.",
+      micAsk:"The browser asked for microphone access, but it wasn’t granted. Tap “Check microphone” again and choose Allow.",
+      micDevice:"The browser doesn’t have microphone permission in your phone’s settings. On Android: Settings → Apps → Chrome → Permissions → Microphone. On iPhone: Settings → Safari → Microphone. Then reload the page."
+    },
+    pauseTitle:"Pause between sentences",
+    pauseNote:"Its length comes from the phone’s voice, so compare by ear: tap an option and I’ll read an example. The choice applies to every line; on-screen text stays the same. By voice: “Pause dash”, “Pause comma” and so on.",
+    pauseOpts:[["dot","Period"],["semi","Semicolon"],["dash","Dash"],["comma","Comma"]],
+    pauseSample:"Let me show it off. It’ll only take a minute.",
+    scriptTitle:"All lines by stage",
+    scriptNote:"Six variants for every stage: the first three ironic, the last three sarcastic. The lines don’t depend on what the answer says, so they fit any answer. The prototype picks a different one each time. Tap a line to hear it.",
+    toneIrony:"irony", toneSarcasm:"sarcasm",
+    footer:"A concept for the Anthropic team. Search results are simulated. Voice output, speech input and the wake word run in your browser.",
+    order:["intro","askName","nameOk","wakePrompt","listening","working","comment","tune","decide","doneOn","doneOff"],
+    groups:{
+      intro:"Greeting", askName:"Asking for a name", nameOk:"Confirming the name",
+      wakePrompt:"Inviting a try", listening:"If called without a request", working:"While I’m working", tune:"Fine-tuning questions",
+      comment:"Commenting on the answer", decide:"Asking for a decision", doneOn:"If kept on", doneOff:"If turned off"
+    },
+    formulas:{
+      comment:"Formula: a short confirmation plus a joke or a hint about what’s next. It doesn’t depend on the content, so it fits any answer."
+    },
+    lines:{
+      intro:[
+        "Hi! I can talk out loud now. Progress is unstoppable, though some have tried.",
+        "Hello! Let me show you how to use your voice with me. Your hands can rest.",
+        "Hi! Quick intro: I talk, you listen. Then the other way round, to be fair.",
+        "Hi! Yes, another tutorial. I promise it’s the shortest one you’ll ever skip.",
+        "Hello! Someone decided I needed a voice. Let’s hear whether they were right.",
+        "Hi! Time for a lesson. Don’t worry, there’s no exam. Almost."
+      ],
+      askName:[
+        "What will you call me? Choose carefully, I’m sentimental.",
+        "First things first: how should I be addressed? I’ll answer even on bad days.",
+        "Pick a name for me. Or take a ready-made one, I’m not proud.",
+        "What will you call me? Just not “Artificial intelligence”, that sounds so formal.",
+        "Choose a name. Yes, our whole friendship depends on it. No pressure.",
+        "How should I be addressed? “Hey you” is already taken by your printer."
+      ],
+      nameOk:[
+        function(n){return "“"+n+"”. Sounds proud, I like it.";},
+        function(n){return "Deal, I’m “"+n+"”. I’ll order a new sign for my door.";},
+        function(n){return "Got it: “"+n+"”. I officially have a name now, and you’re the godparent.";},
+        function(n){return "“"+n+"”? Bold. Fine, I’ll live with it.";},
+        function(n){return "Accepted, I’m “"+n+"”. Hopefully that isn’t also your cat’s name.";},
+        function(n){return "“"+n+"”. Well, there have been worse names. Not many, but some.";}
+      ],
+      wakePrompt:[
+        function(n){return "Now call me and ask me to find something. For example: “"+n+", find everything about chess”.";},
+        function(n){return "Your turn. Say “"+n+"” and what to find. I’ll pretend I wasn’t waiting.";},
+        function(n){return "Let’s see if I really respond. Say “"+n+", find information about…” and any topic.";},
+        function(n){return "Say “"+n+"” and a request. Yes, out loud. Yes, in front of people.";},
+        function(n){return "Call “"+n+"” and ask me to find something. I promise not to ask why.";},
+        function(n){return "Go on: “"+n+", find…” and a topic. I’m not just here to look pretty, though that too.";}
+      ],
+      listening:[
+        "I’m here. What are we looking for this time?",
+        "Yes, yes, all ears. Antennas up.",
+        "On it. Tell me what to find.",
+        "You called? I’m all ears. Anything besides my name?",
+        "Great, you remember my name. And the request?",
+        "Listening. You can keep going, I don’t bite."
+      ],
+      working:[
+        "One second, flipping through the internet…",
+        "Searching. It barely hurts…",
+        "Hang on, gathering the good stuff…",
+        "Searching. No peeking…",
+        "Working. Yes, actually working…",
+        "One sec. Big thoughts need small pauses…"
+      ],
+      comment:[
+        "Done. It’s all on screen, even if that was suspiciously fast.",
+        "Here. The details are on screen; I won’t read them unless you ask.",
+        "Found it. Say “Read aloud” if your eyes are tired.",
+        "There you go. Half a second of work, and I’m as proud as after a full day.",
+        "Done. You can say you found it yourself, I won’t tell.",
+        "That’s it. Did you think it would be hard?"
+      ],
+      tune:[
+        function(n){return "A bit of paperwork: did I get “"+n+"” right? And did I respond to your voice?";},
+        function(n){return "Let’s check the settings. Is “"+n+"” spelled right? Did I hear you the first time?";},
+        function(n){return "Your verdict: is the name “"+n+"” right? And did I respond in time?";},
+        function(n){return "Time to rate my work. No mercy: is “"+n+"” right? Did I react to your voice?";},
+        function(n){return "Be honest, I can take it: is “"+n+"” right? And did I hear you?";},
+        function(n){return "The unavoidable survey: is “"+n+"” correct? Did I respond when you called?";}
+      ],
+      decide:[
+        "So? Keep the voice companion?",
+        "That’s how I work. Shall we keep me chatty?",
+        "Now you know how it works. Your call.",
+        "Moment of truth. Keep my voice, or back to silence?",
+        "Honestly, no hard feelings: keep me or not? I’ll pretend I don’t care.",
+        "Decide. And yes, I’ll notice if you tap “Turn it off”."
+      ],
+      doneOn:[
+        function(n){return "Great. Call “"+n+"” when you need me.";},
+        function(n){return "Hooray! I’m here, just say “"+n+"”.";},
+        function(n){return "Deal. I’ll be around, but not in your face. Call “"+n+"”.";},
+        function(n){return "Excellent choice. Modestly, I agree. Call “"+n+"”.";},
+        function(n){return "Of course you kept me. Who’d have doubted it. Call “"+n+"”.";},
+        function(n){return "We’re a team now. Not that you had much choice, but it’s nice. Call “"+n+"”.";}
+      ],
+      doneOff:[
+        "Understood, going quiet. Text answers only from now on.",
+        "Fine, switching to text. But you know where to find me.",
+        "Got it. Silent as a fish. A very smart fish.",
+        "No hard feelings. Almost. You can turn the voice back on in settings.",
+        "All right, I’ll be quiet. Shortest voice career in history.",
+        "Turned off? I see. I’ll be quiet but just as useful. And slightly offended."
+      ]
+    },
+    results:{
+      photo:[["The rule of thirds","Where to place your subject so the shot doesn’t feel flat."],["Shutter, aperture, ISO","The three settings behind every exposure, in plain words."],["A week of practice","Seven days, seven themes: light, shadow, people, texture, motion, detail, dusk."]],
+      guitar:[["Your first four chords","Am, C, G and Em: hundreds of songs are built on them."],["Smooth chord changes","A one-minute drill: switch between two chords to a metronome."],["A simple strum","Down, down, up, up, down, up: a rhythm that fits most campfire songs."]],
+      lang:[["15 minutes a day","Why short, regular practice beats one long session a week."],["Everyday verbs","Ser, estar, tener and ir: you’ll use them in almost every sentence."],["Listening first","Podcasts for learners, and how to move from slow speech to native speed."]],
+      code:[["Python from scratch","Variables, conditions and loops with examples you can run in the browser."],["A one-evening project","A tiny currency converter: a first program you’ll actually use."],["Reading error messages","What the red text in the console means and where to look for the cause."]],
+      cook:[["A 5-minute omelette","The trick is low heat and a lid."],["Onions without tears","A sharp knife and a chilled onion mean less eye irritation."],["Basic tomato sauce","Garlic, tomatoes, olive oil and basil: a base for any pasta."]]
+    },
+    customResults:function(x){return [["The short version","The key facts and context in a few sentences."],["What’s new","Recent developments and changes, with dates and sources."],["To dig deeper","Background, explanations and reliable reading."]];}
+  }
+};
+
+var S = {lang:"uk", sound:true, pause:"dot", step:0, name:null, topicKey:null, customTopic:null, results:false, thinking:false, comment:0, decision:null, cur:null};
+function $(id){return document.getElementById(id);}
+var orb=$("orb"), cap=$("caption"), hint=$("hint"), panel=$("panel"), voiceNote=$("voiceNote"), altBtn=$("altBtn");
+var pending=null;
+var CK={tts:"idle", ttsToken:0, mic:"idle", micHeard:"", rec:null, afterToken:0};
+try{ var savedPause=localStorage.getItem("voiceProtoPause"); if(savedPause && {dot:1,semi:1,dash:1,comma:1}[savedPause]) S.pause=savedPause; }catch(e){}
+/* speech-only: swap the period between sentences for a mark the voice pauses on more briefly */
+var PAUSE_SEP={dot:null, semi:";", dash:" —", comma:","};
+function shapePauses(text){
+  var sep=PAUSE_SEP[S.pause];
+  if(!sep) return text;
+  return String(text).replace(/([^.\s])\.(\s+)(?=[A-ZА-ЯІЇЄҐ«“"])/g, function(_, a, sp){ return a+sep+sp; });
+}
+function L(){return T[S.lang];}
+function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+function nm(){return S.name||L().names[0];}
+function rnd(n){return Math.floor(Math.random()*n);}
+/* a different line from last time, for every stage */
+var lastIdx={};
+function pickIdx(key, n){ var i=rnd(n); if(n>1 && i===lastIdx[key]) i=(i+1+rnd(n-1))%n; lastIdx[key]=i; return i; }
+function lineText(key, idx, args){ var v=L().lines[key][idx]; return typeof v==="function" ? v.apply(null, args||[]) : v; }
+
+/* ---------- voice output ---------- */
+var hasTTS = ("speechSynthesis" in window) && ("SpeechSynthesisUtterance" in window);
+var voices=[];
+function loadVoices(){ try{ voices = hasTTS ? window.speechSynthesis.getVoices() : []; }catch(e){ voices=[]; } updateVoiceNote(); renderCheck(); }
+if(hasTTS){ loadVoices(); try{ window.speechSynthesis.onvoiceschanged = loadVoices; }catch(e){} }
+function pickVoice(){
+  var p=L().voicePrefix;
+  for(var i=0;i<voices.length;i++){ if(voices[i].lang && voices[i].lang.toLowerCase().indexOf(p)===0) return voices[i]; }
+  return null;
+}
+function voiceMissing(){ return hasTTS && voices.length>0 && !pickVoice(); }
+function fallbackVoice(){ for(var i=0;i<voices.length;i++){ if(voices[i]["default"]) return voices[i]; } return voices[0]||null; }
+function canSpeak(){ return S.sound && hasTTS; }
+function updateVoiceNote(){
+  var t="";
+  if(S.sound && (!hasTTS || ttsBroken)) t=L().noTTS;
+  else if(S.sound && voiceMissing()) t=L().noVoice;
+  $("voiceNoteText").textContent=t;
+  $("voiceNoteBtn").textContent=L().ck.title;
+  voiceNote.hidden=!t;
+}
+function stopVoice(){ if(hasTTS){ try{ window.speechSynthesis.cancel(); }catch(e){} } }
+function makeUtter(text, fb){
+  var u=new SpeechSynthesisUtterance(shapePauses(text));
+  var v=fb ? fallbackVoice() : pickVoice();
+  if(v){ u.voice=v; u.lang=v.lang || L().ttsLang; }
+  else u.lang=L().ttsLang;
+  u.rate=1.03;
+  return u;
+}
+/* speak with the language's voice; if the device has none, retry with its default voice instead of staying silent */
+/* the mic is off while the assistant talks: when each line ends is noted, and recent lines are kept
+   so that anything coming back through the mic that repeats them is ignored */
+var lastSpeechEnd=0, recentSpoken=[];
+function say(text, h){
+  function attempt(fb){
+    var u=makeUtter(text, fb);
+    u.onstart=function(){ if(h.start) h.start(); };
+    u.onend=function(){ lastSpeechEnd=Date.now(); if(h.end) h.end(); };
+    u.onerror=function(ev){
+      var c=ev && ev.error;
+      if(!fb && (c==="language-unavailable" || c==="voice-unavailable" || c==="synthesis-unavailable") && fallbackVoice()){ attempt(true); return; }
+      lastSpeechEnd=Date.now();
+      if(h.error) h.error(c);
+    };
+    window.speechSynthesis.speak(u);
+  }
+  stopMic();
+  recentSpoken.unshift(normWords(text)); if(recentSpoken.length>3) recentSpoken.length=3;
+  lastSpeechEnd=Date.now()+60000;   /* still talking until the line reports its end */
+  window.speechSynthesis.cancel();
+  attempt(false);
+}
+/* start listening only once the phone has actually gone quiet, plus a short pause */
+function whenQuiet(fn){
+  var t0=Date.now();
+  (function check(){
+    var busy=false; try{ busy=!!(window.speechSynthesis && window.speechSynthesis.speaking); }catch(e){}
+    var left=lastSpeechEnd+600-Date.now(), waited=Date.now()-t0;
+    if((left>0 && waited<4000) || (busy && waited<2500)){ setTimeout(check, 150); return; }
+    fn();
+  })();
+}
+function isEcho(t){
+  /* only longer phrases are checked, so short answers like “так” or “повертаємося” always get through */
+  var n=normWords(t).trim();
+  if(!n || n.split(" ").length<3 || Date.now()-lastSpeechEnd>1500) return false;
+  for(var i=0;i<recentSpoken.length;i++){ if(recentSpoken[i].indexOf(" "+n+" ")!==-1) return true; }
+  return false;
+}
+
+var speakToken=0, speakTimer=null, playingNow=false, playToken=0, micActive=false, ttsBroken=false;
+function restState(){
+  if(playingNow) return "speaking";
+  if(S.paused) return "off";
+  if(micActive) return "listening";
+  if(S.thinking) return "thinking";
+  if(S.step===5 && S.decision===false) return "off";
+  if(S.step===2 && !S.results) return "invite";
+  return "idle";
+}
+function setOrb(s){ orb.setAttribute("data-state", s); }
+function showCaption(text){
+  cap.textContent=text;
+  cap.classList.remove("fresh"); void cap.offsetWidth; cap.classList.add("fresh");
+}
+/* Before the first tap, browsers only let a page speak while it is using the microphone.
+   So for a line spoken before any tap the page opens the mic (allowed earlier for this site),
+   speaks, and closes it again before it starts listening. */
+var capStream=null, capPending=null;
+function captureOn(){
+  if(capStream) return Promise.resolve(true);
+  if(capPending) return capPending;
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || micPolicyBlocked()) return Promise.resolve(false);
+  capPending = navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false}})
+    .then(function(s){ capPending=null; capStream=s; return true; }, function(){ capPending=null; return false; });
+  return capPending;
+}
+function captureOff(){ if(capStream){ try{ capStream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){} capStream=null; } }
+/* browsers only let a page speak after the first tap; until then lines are shown as text */
+function voiceAllowed(){ return !(navigator.userActivation && !navigator.userActivation.hasBeenActive); }
+function needTap(){ S.skippedVoice=true; var t=$("tapSound"); t.textContent=L().tapSound; t.hidden=false; }
+function onFirstTap(e){
+  if(!voiceAllowed()) return;
+  var t=e.target, ctl = (t && t.closest) ? t.closest("button,input,a,summary,label") : null;
+  if(S.held){
+    /* header controls, the pause button and the sections below handle their own taps */
+    if(ctl && (ctl.closest(".controls") || ctl.closest("details") || ctl.id==="pauseBtn")) return;
+    S.held=false; S.skippedVoice=false;
+    document.removeEventListener("click", onFirstTap, true);
+    $("tapSound").hidden=true;
+    if(!S.paused && S.cur){ var h0=S.cur; speakLine(h0.key, h0.args, h0.done, h0.idx); }
+    return;
+  }
+  document.removeEventListener("click", onFirstTap, true);
+  $("tapSound").hidden=true;
+  if(!S.skippedVoice) return;
+  S.skippedVoice=false;
+  if(ctl) return;
+  if(S.cur && !S.thinking && !S.paused){ var c=S.cur; speakLine(c.key, c.args, c.done, c.idx); }
+}
+document.addEventListener("click", onFirstTap, true);
+/* speak a line shown in the caption (flow speech) */
+function speak(text, done){
+  showCaption(text);
+  playToken++; playingNow=false;
+  var token=++speakToken;
+  clearTimeout(speakTimer);
+  setOrb("speaking");
+  var finished=false;
+  function finish(){
+    if(finished || token!==speakToken) return;
+    finished=true; clearTimeout(speakTimer);
+    captureOff();
+    setOrb(restState());
+    if(done) done();
+  }
+  var readMs=Math.max(1700, text.length*60);
+  function voiced(){
+    try{
+      var started=false;
+      say(text, {
+        start:function(){
+          started=true;
+          if(ttsBroken){ ttsBroken=false; updateVoiceNote(); }
+          if(token===speakToken){ clearTimeout(speakTimer); speakTimer=setTimeout(finish, readMs+8000); }
+        },
+        end:finish,
+        error:function(c){
+          /* if the browser still refuses before any tap, the line stays as text, without a false alarm */
+          if(c==="not-allowed" && !voiceAllowed()){ S.skippedVoice=true; if(token===speakToken){ clearTimeout(speakTimer); speakTimer=setTimeout(finish, readMs); } return; }
+          if(c && c!=="interrupted" && c!=="canceled"){ ttsBroken=true; updateVoiceNote(); }
+          finish();
+        }
+      });
+      speakTimer=setTimeout(function(){
+        if(started || token!==speakToken) return;
+        if(voiceAllowed()){ ttsBroken=true; updateVoiceNote(); } else S.skippedVoice=true;
+        speakTimer=setTimeout(finish, Math.max(0, readMs-2500));
+      }, 2500);
+      return true;
+    }catch(e){ return false; }
+  }
+  if(canSpeak() && voiceAllowed()){ if(voiced()) return; }
+  else if(canSpeak()){
+    /* no tap yet: browsers let a page speak while it is using the microphone,
+       so the mic (already allowed for this site) stays open for the length of the line */
+    stopMic();
+    captureOn().then(function(ok){
+      if(finished || token!==speakToken) return;
+      if(ok && voiced()) return;
+      S.skippedVoice=true;
+      speakTimer=setTimeout(finish, readMs);
+    });
+    return;
+  }
+  speakTimer=setTimeout(finish, readMs);
+}
+/* read any written text aloud without changing the caption */
+function play(text, onEnd){
+  if(!canSpeak()) return false;
+  var my=++playToken;
+  try{
+    playingNow=true;
+    var ended=false;
+    function end(){
+      if(ended) return; ended=true;
+      captureOff();
+      if(my===playToken){ playingNow=false; setOrb(restState()); resumeListen(); }
+      if(onEnd) onEnd();
+    }
+    setOrb("speaking");
+    if(voiceAllowed()) say(text, {end:end, error:end});
+    else { stopMic(); captureOn().then(function(){ if(my===playToken && !ended) say(text, {end:end, error:end}); }); }
+    setTimeout(end, Math.max(2000, text.length*75)+8000);
+    return true;
+  }catch(e){ playingNow=false; return false; }
+}
+function speakLine(key, args, done, idx){
+  var arr=L().lines[key];
+  if(idx==null) idx=pickIdx(key, arr.length);
+  S.cur={key:key, args:args||[], done:done||null, idx:idx};
+  speak(lineText(key, idx, args), done);
+}
+function showLine(key, args, idx){
+  var arr=L().lines[key];
+  if(idx==null) idx=pickIdx(key, arr.length);
+  S.cur={key:key, args:args||[], done:null, idx:idx};
+  showCaption(lineText(key, idx, args));
+}
+function hideAlt(){ S.cur=null; altBtn.hidden=true; }
+
+/* ---------- voice input ---------- */
+var SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+var rec=null;
+function micLive(on){
+  var el=$("micLive"); if(!el) return;
+  $("micLiveText").textContent=L().micLive;
+  el.hidden=!on;
+}
+var lis=null, stepListen=null;
+function stopMic(){
+  lis=null;
+  if(rec){ var r=rec; rec=null; try{ r.abort(); }catch(e){} }
+  micActive=false; micLive(false);
+  var ons=document.querySelectorAll(".mic.on");
+  for(var i=0;i<ons.length;i++){ ons[i].classList.remove("on"); ons[i].setAttribute("aria-pressed","false"); ons[i].setAttribute("aria-label", L().micAria); }
+}
+function micUi(o, on){
+  micActive=on; micLive(on);
+  if(o.btn){ o.btn.classList.toggle("on", on); o.btn.setAttribute("aria-pressed", on?"true":"false"); o.btn.setAttribute("aria-label", on?L().micStop:L().micAria); }
+  setOrb(on ? "listening" : restState());
+}
+function micStopMsg(code){
+  var m=L();
+  return (code==="not-allowed"||code==="service-not-allowed") ? m.micDenied : code==="network" ? m.micNetwork : code==="audio-capture" ? m.ck.micNoDevice : m.micError;
+}
+/* listening that stays on for as long as its step is on screen: short single-phrase sessions,
+   the same kind that worked before, started again one after another;
+   o.onFinal(alternatives) returns true once it has what it needs */
+function listen(o){
+  stopMic();
+  captureOff();
+  if(!micUsable() || S.paused) return false;
+  var step=S.step, fails=0, quick=0, me={o:o};
+  lis=me;
+  function run(){
+    if(lis!==me || S.step!==step) return;
+    var r; try{ r=new SR(); }catch(e){ lis=null; micUi(o,false); if(o.onStop) o.onStop("error"); return; }
+    rec=r;
+    r.lang=L().ttsLang; r.interimResults=true; r.continuous=false; r.maxAlternatives=1;
+    var fatal="", done=false, t0=Date.now();
+    r.onresult=function(e){
+      if(done || lis!==me) return;
+      for(var i=e.resultIndex;i<e.results.length && !done;i++){
+        var res=e.results[i], alts=[];
+        for(var j=0;j<res.length;j++) alts.push(res[j].transcript);
+        if(isEcho(alts[0])) continue;   /* the assistant’s own words coming back through the mic */
+        if(res.isFinal){
+          var g=globalCommand(alts);
+          if(g && o.onInterim) o.onInterim("");
+          if(g==="stop") done=true;
+          /* during a check the flow never acts on speech: no name, no search */
+          else if(!g && CHK.active && !o.chk){ }
+          else if(!g && o.onFinal(alts)) done=true;
+        }
+        else if(o.onInterim && !CHK.active) o.onInterim(alts[0]);
+      }
+      if(done && lis===me){ lis=null; if(rec===r) rec=null; try{ r.abort(); }catch(x){} micUi(o,false); }
+    };
+    r.onerror=function(e){ var c=e && e.error; if(c==="not-allowed"||c==="service-not-allowed"||c==="audio-capture"||c==="network") fatal=c; };
+    r.onend=function(){
+      if(rec===r) rec=null;
+      if(done || lis!==me || S.step!==step) return;
+      quick = (Date.now()-t0<1000) ? quick+1 : 0;
+      if(fatal || quick>=5){ lis=null; micUi(o,false); if(o.onStop) o.onStop(fatal||"error"); return; }
+      setTimeout(run, 250);
+    };
+    try{ r.start(); micUi(o,true); }
+    catch(e){ rec=null; if(++fails>3){ lis=null; micUi(o,false); if(o.onStop) o.onStop("error"); } else setTimeout(run, 400); }
+  }
+  whenQuiet(run);
+  return lis===me;
+}
+/* voice commands that work on every screen: the sections below, their buttons, sound, language and pause.
+   “stop” means the command took over the mic (or left the screen); “keep” means listening goes on */
+function sectionOpen(d, open){
+  d.open=open;
+  if(open){
+    var calm=window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    try{ d.scrollIntoView({behavior: calm?"auto":"smooth", block:"start"}); }catch(e){ d.scrollIntoView(); }
+  }
+}
+function globalCommand(alts){
+  for(var k=0;k<alts.length;k++){
+    var c=normWords(alts[k]).trim();
+    if(!c || c.split(" ").length>7) continue;
+    if(/(знайди|пошукай|розкажи|find|search|tell me)/.test(c)) continue;   /* a search request, not a command */
+    /* phrases people use to test a mic are treated as a mic check on any screen */
+    if(/(ти мене чуєш|мене чути|мене чутно|чуєш мене|ти чуєш|раз два|перевірка зв|тест тест|^тест$|^алло|^ало$|can you hear me|testing testing|^testing$|one two three)/.test(c)){ micHeardDirect(alts[k]); return "stop"; }
+    var open=/(відкрий|відкрити|відкрийте|покажи|розгорни|open|show|expand)/.test(c),
+        close=/(закрий|закрити|закрийте|сховай|згорни|приховай|close|hide|collapse)/.test(c),
+        tab=/(вкладк|tab)/.test(c),
+        kwCheck=/(перевірк|звук і мікрофон|звук та мікрофон|sound and mic|check)/.test(c) || (tab && /(перш|(^| )1( |$)|first)/.test(c)),
+        kwLines=/(реплік|lines)/.test(c) || (tab && /(друг|(^| )2( |$)|second)/.test(c));
+    if(close && (kwCheck || kwLines || /(все|усе|всі|усі|all)/.test(c))){
+      if(kwCheck || !kwLines) sectionOpen($("check"), false);
+      if(kwLines || !kwCheck) sectionOpen($("script"), false);
+      return "keep";
+    }
+    if(/(звук і мікрофон|звук та мікрофон|sound and mic)/.test(c) || (open && kwCheck)){ chkOpen(); return "stop"; }
+    if((open && kwLines) || /^(усі|всі) репліки/.test(c) || /репліки за етапами/.test(c)){ sectionOpen($("script"), true); return "keep"; }
+    if(/(перевір\S* звук|тест звуку|check (the )?sound|test (the )?sound|sound check)/.test(c)){ runSoundCheck(); return "stop"; }
+    if(/(перевір\S* мікрофон|тест мікрофон|check (the )?mic|test (the )?mic)/.test(c)){ runMicCheck(); return "stop"; }
+    if(/(пауз|розділ|pause between)/.test(c)){
+      var v = /(крапка з комою|крапку з комою|semicolon)/.test(c) ? "semi" : /(тире|dash)/.test(c) ? "dash" : /(кома|кому|comma)/.test(c) ? "comma" : /(крапка|крапку|period|dot)/.test(c) ? "dot" : null;
+      if(v){ sectionOpen($("script"), true); var chip=$("pauseChips").querySelector('[data-v="'+v+'"]'); if(chip){ chip.click(); return "stop"; } }
+    }
+    if(/^(пауза|pause)$/.test(c) || /на паузу/.test(c)){ $("pauseBtn").click(); return "stop"; }
+    if(/((вимкни|вимкнути|вимкніть|без) звук|^mute|sound off)/.test(c)){ if(S.sound) $("soundBtn").click(); return "keep"; }
+    if(/((увімкни|увімкнути|увімкніть) звук|unmute|sound on)/.test(c)){ if(!S.sound) $("soundBtn").click(); return "keep"; }
+    if(/^(англійською|english|in english|українською|ukrainian|in ukrainian)$/.test(c) || /(перейди|переключи|перемкни|switch|change).*(англійськ|english|українськ|ukrainian)/.test(c)){
+      var toEn=/(англійськ|english)/.test(c);
+      if((toEn && S.lang==="uk") || (!toEn && S.lang==="en")){ $("langBtn").click(); return "stop"; }
+      return "keep";
+    }
+  }
+  return false;
+}
+/* the mic button (and the circle) pause and resume the current step's listening */
+function micToggle(id){
+  var b=$(id+"Mic"), msg=$(id+"Msg"); if(!b) return;
+  b.onclick=function(){
+    if(lis || rec){ stopMic(); S.micPaused=true; msg.textContent=L().micPaused; setOrb(restState()); return; }
+    if(!micUsable()){ msg.textContent = SR ? L().micDenied : L().micUnsupported; return; }
+    msg.textContent=""; S.micPaused=false;
+    stopVoice(); speakToken++;
+    if(stepListen) stepListen();
+  };
+}
+function resumeListen(){ if(stepListen && !lis && !rec && !S.paused && !S.micPaused && !S.thinking && micUsable()) stepListen(); }
+
+/* ---------- chrome ---------- */
+function updateChrome(){
+  var l=L();
+  document.documentElement.lang=l.htmlLang;
+  $("brandTitle").textContent=l.brandTitle;
+  $("brandSub").textContent=l.brandSub;
+  $("footer").textContent=l.footer;
+  $("altLabel").textContent=l.alt;
+  var lb=$("langBtn"); lb.textContent=l.langBtn; lb.setAttribute("aria-label", l.langAria);
+  var sb=$("soundBtn"); sb.setAttribute("aria-pressed", S.sound?"true":"false"); sb.setAttribute("aria-label", S.sound?l.soundOn:l.soundOff);
+  var lis=$("steps").children;
+  $("steps").setAttribute("aria-label", l.brandTitle);
+  for(var i=0;i<lis.length;i++){
+    lis[i].className = (S.step>i) ? "done" : (S.step===i ? "current" : "");
+    if(S.step===i) lis[i].setAttribute("aria-current","step"); else lis[i].removeAttribute("aria-current");
+    lis[i].firstChild.textContent = l.stepOf(i+1, lis.length) + l.steps[i];
+  }
+  orb.disabled = !((S.step===1 || S.step===2) && micUsable());
+  orb.setAttribute("aria-label", orb.disabled ? "Claude" : l.orbAria);
+  updateVoiceNote();
+  renderScript();
+  renderCheck();
+  if(!$("tapSound").hidden) $("tapSound").textContent=l.tapSound;
+  updatePause();
+}
+
+/* ---------- script of all lines ---------- */
+function renderScript(){
+  var l=L();
+  $("scriptTitle").textContent=l.scriptTitle;
+  $("scriptNote").textContent=l.scriptNote;
+  $("scriptMsg").textContent="";
+  $("pauseTitle").textContent=l.pauseTitle;
+  $("pauseNote").textContent=l.pauseNote;
+  $("pauseChips").innerHTML=chipsHTML(l.pauseOpts, S.pause);
+  var html="";
+  l.order.forEach(function(key){
+    html+='<div class="group"><h3>'+esc(l.groups[key])+'</h3>';
+    if(l.formulas[key]) html+='<p class="formula">'+esc(l.formulas[key])+'</p>';
+    html+='<ol>';
+    l.lines[key].forEach(function(_, i){
+      html+='<li><button type="button" class="line" data-key="'+key+'" data-idx="'+i+'"><span class="num">'+(i+1)+'</span><span>'+esc(lineText(key,i,[nm()]))+'</span><span class="tone">'+esc(i<3 ? l.toneIrony : l.toneSarcasm)+'</span></button></li>';
+    });
+    html+='</ol></div>';
+  });
+  $("scriptBody").innerHTML=html;
+}
+var playingBtn=null;
+$("scriptBody").addEventListener("click", function(e){
+  var b=e.target.closest ? e.target.closest(".line") : null;
+  if(!b) return;
+  var key=b.getAttribute("data-key"), idx=+b.getAttribute("data-idx");
+  var text=lineText(key, idx, [nm()]);
+  if(playingBtn) playingBtn.classList.remove("playing");
+  playingBtn=b; b.classList.add("playing");
+  function clear(){ if(playingBtn===b){ b.classList.remove("playing"); playingBtn=null; } }
+  if(!play(text, clear)){
+    $("scriptMsg").textContent = S.sound ? L().noTTS : L().needSound;
+    setTimeout(clear, 900);
+  } else { $("scriptMsg").textContent=""; }
+});
+
+$("pauseChips").addEventListener("click", function(e){
+  var b=e.target.closest ? e.target.closest(".chip") : null;
+  if(!b) return;
+  S.pause=b.getAttribute("data-v");
+  try{ localStorage.setItem("voiceProtoPause", S.pause); }catch(e2){}
+  var cs=this.querySelectorAll(".chip");
+  for(var i=0;i<cs.length;i++) cs[i].setAttribute("aria-pressed", cs[i]===b?"true":"false");
+  $("scriptMsg").textContent = play(L().pauseSample) ? "" : (S.sound ? L().noTTS : L().needSound);
+});
+
+/* ---------- steps ---------- */
+function go(step){ clearTimeout(pending); stopMic(); S.step=step; render(); }
+
+function chipsHTML(items, pressedVal){
+  return '<div class="chips">'+items.map(function(it){
+    return '<button type="button" class="chip" data-v="'+esc(it[0])+'" aria-pressed="'+(pressedVal===it[0]?"true":"false")+'">'+esc(it[1])+'</button>';
+  }).join("")+'</div>';
+}
+function customHTML(id, label, ph, btn){
+  var l=L();
+  return '<form class="custom" id="'+id+'Form" autocomplete="off"><label for="'+id+'In">'+esc(label)+'</label>'+
+    '<div class="row"><input id="'+id+'In" maxlength="'+(id==="req"?"120":"40")+'" placeholder="'+esc(ph)+'" enterkeyhint="'+(btn?"go":"done")+'">'+
+    '<button type="button" class="mic" id="'+id+'Mic" aria-pressed="false" aria-label="'+esc(l.micAria)+'">'+MIC_SVG+'</button>'+
+    (btn ? '<button class="btn secondary" type="submit">'+esc(btn)+'</button>' : '')+'</div>'+
+    '<p class="mic-msg" id="'+id+'Msg" aria-live="polite"></p></form>';
+}
+function lockPanel(){ var els=panel.querySelectorAll("button,input"); for(var i=0;i<els.length;i++) els[i].disabled=true; }
+
+function render(){
+  updateChrome();
+  var l=L();
+  hint.textContent="";
+  panel.innerHTML="";
+  stepListen=null; S.micPaused=false; S.held=false;
+  if(CHK.active){ CHK.active=false; CHK.ask=null; anaStop(); clearTimeout(CK.micTimer); $("check").open=false; }
+
+  if(S.step===0){
+    /* no start button: the greeting starts by itself, and the pause button can stop it */
+    speakLine("intro", [], function(){ go(1); });
+    hint.textContent=l.introHint;
+    return;
+  }
+
+  if(S.step===1){
+    var canHear=micUsable();
+    panel.innerHTML = chipsHTML(l.names.map(function(n){return [n,n];}), S.name) + customHTML("name", l.customName, l.phName, null);
+    function pick(n){
+      n=String(n).trim(); if(!n) return;
+      stopMic();
+      S.name=n;
+      var cs=panel.querySelectorAll(".chip");
+      for(var i=0;i<cs.length;i++) cs[i].setAttribute("aria-pressed", cs[i].getAttribute("data-v")===n?"true":"false");
+      lockPanel();
+      hint.textContent="";
+      renderScript();
+      speakLine("nameOk", [n], function(){ go(2); });
+    }
+    /* the mic stays on until a word is heard; that word becomes the name straight away */
+    function nameListen(){
+      if(S.step!==1) return;
+      var b=$("nameMic"), input=$("nameIn");
+      if(!b || b.disabled) return;
+      var ok=listen({btn:b,
+        onInterim:function(t){ input.value=t; },
+        onFinal:function(alts){ var n=cleanName(alts[0]); if(!n) return false; input.value=n; pick(n); return true; },
+        onStop:function(code){ $("nameMsg").textContent=micStopMsg(code); hint.textContent=""; }
+      });
+      if(ok) hint.textContent=L().nameListening;
+    }
+    stepListen=nameListen;
+    var cs=panel.querySelectorAll(".chip");
+    for(var i=0;i<cs.length;i++) cs[i].onclick=function(){ pick(this.getAttribute("data-v")); };
+    $("nameForm").onsubmit=function(e){ e.preventDefault(); pick(nameFor($("nameIn").value)); };
+    /* no confirm button: a typed name is applied after a short pause in typing (or right away on Enter) */
+    var typeTimer=null;
+    $("nameIn").addEventListener("input", function(){
+      clearTimeout(typeTimer);
+      if(lis || rec){ stopMic(); S.micPaused=true; }
+      var inp=this;
+      typeTimer=setTimeout(function(){ if(S.step===1 && !inp.disabled && inp.value.trim()) pick(nameFor(inp.value)); }, 1800);
+    });
+    micToggle("name");
+    speakLine("askName", [], canHear ? nameListen : null);
+    if(canHear) hint.textContent=l.nameHintVoice;
+    return;
+  }
+
+  if(S.step===2){
+    if(S.results){ showResults(); return; }
+    var canHear2=micUsable();
+    S.awake=false;
+    panel.innerHTML = customHTML("req", l.reqLabel, l.phReq, null);
+    var input=$("reqIn"), msg=$("reqMsg");
+    function runRequest(text, heardText){
+      var topic=topicFrom(text);
+      if(!topic){ msg.textContent=L().reqEmpty; return false; }
+      startSearch(topic, heardText);
+      return true;
+    }
+    /* the mic stays on: a phrase with the name is a request; the name alone gets a short reply,
+       and then the next phrase is taken as the request */
+    function tryListen(){
+      if(S.step!==2 || S.thinking || S.results) return;
+      var b=$("reqMic"); if(!b || b.disabled) return;
+      var ok=listen({btn:b,
+        onInterim:function(t){ input.value=t; },
+        onFinal:function(alts){
+          /* the name is optional here: with or without it, a phrase is the request; the name alone gets a short reply */
+          for(var k=0;k<alts.length;k++){
+            var a=alts[k], rest=afterWake(a);
+            if(rest===""){ S.awake=true; input.value=""; hint.textContent=L().awakeHint; speakLine("listening", [], tryListen); return true; }
+            var req = rest!==null ? rest : a;
+            if(topicFrom(req)){ input.value=a; S.viaVoice=true; S.awake=false; runRequest(req, a); return true; }
+          }
+          return false;
+        },
+        onStop:function(code){ msg.textContent=micStopMsg(code); }
+      });
+      if(ok && !S.awake) hint.textContent=L().tryHintVoice(nm());
+    }
+    stepListen=tryListen;
+    $("reqForm").onsubmit=function(e){
+      e.preventDefault();
+      var v=input.value.trim(); if(!v) return;
+      var rest=afterWake(v);
+      if(rest===""){ msg.textContent=L().reqEmpty; return; }
+      S.viaVoice=false;
+      runRequest(rest ? rest : v, v);
+    };
+    /* typed requests start on their own once typing pauses and there is a topic to search */
+    var reqTimer=null;
+    input.addEventListener("input", function(){
+      clearTimeout(reqTimer);
+      if(lis || rec){ stopMic(); S.micPaused=true; }
+      reqTimer=setTimeout(function(){
+        if(S.step!==2 || input.disabled || S.thinking) return;
+        var v=input.value.trim(); if(v.length<3) return;
+        var rest=afterWake(v); if(rest==="") return;
+        var src = rest!==null ? rest : v, t=topicFrom(src);
+        if(!t || t.length<2) return;
+        S.viaVoice=false; runRequest(src, v);
+      }, 2500);
+    });
+    micToggle("req");
+    speakLine("wakePrompt", [nm()], canHear2 ? tryListen : null);
+    hint.textContent = canHear2 ? l.tryHintVoice(nm()) : l.tryHintText;
+    return;
+  }
+
+  if(S.step===3){
+    hint.textContent=l.tuneHint;
+    renderTune(false);
+    /* arriving from “Змінити звертання” on the results: ask for the new name, then listen */
+    if(S.tuneName==="change") speakLine("askName", [], resumeListen);
+    else speakLine("tune", [nm()], micUsable() ? tuneListen : null);
+    return;
+  }
+
+  if(S.step===4){
+    stepListen=decideListen;
+    speakLine("decide", [], micUsable() ? decideListen : null);
+    hint.textContent=l.decideHint;
+    panel.innerHTML='<div class="actions"><button class="btn primary" type="button" id="keepBtn">'+esc(l.keep)+'</button>'+
+      '<button class="btn secondary" type="button" id="offBtn">'+esc(l.off)+'</button></div>';
+    $("keepBtn").onclick=function(){ S.decision=true; go(5); };
+    $("offBtn").onclick=function(){ S.decision=false; go(5); };
+    return;
+  }
+
+  if(S.step===5){
+    var on = S.decision===true;
+    if(on) speakLine("doneOn", [nm()]);
+    else speakLine("doneOff", []);
+    panel.innerHTML='<div class="status"><h2>'+esc(on?l.onTitle:l.offTitle)+'</h2><p>'+esc(on?l.onText(nm()):l.offText)+'</p></div>'+
+      '<div class="actions"><button class="btn secondary" type="button" id="againBtn">'+esc(l.again)+'</button></div>';
+    $("againBtn").onclick=function(){
+      stopVoice();
+      S.name=null; S.topicKey=null; S.customTopic=null; S.results=false; S.thinking=false; S.decision=null;
+      S.viaVoice=false; S.awake=false; S.reqHeard=""; S.tuneName=null; S.tuneHeard=null;
+      go(0);
+    };
+  }
+}
+
+function topicLabel(){
+  var l=L();
+  if(S.customTopic) return S.customTopic;
+  for(var i=0;i<l.topics.length;i++) if(l.topics[i][0]===S.topicKey) return l.topics[i][1];
+  return "";
+}
+function showResults(){
+  var l=L();
+  var items = S.customTopic ? l.customResults(S.customTopic) : l.results[S.topicKey];
+  panel.innerHTML='<p class="res-head">'+esc(S.reqHeard ? l.heard(S.reqHeard) : l.foundFor(topicLabel()))+'</p><ul class="results">'+
+    items.map(function(r){return '<li><div class="r-title">'+esc(r[0])+'</div><div class="r-desc">'+esc(r[1])+'</div></li>';}).join("")+
+    '</ul><div class="actions"><button class="btn primary" type="button" id="nextBtn">'+esc(l.next)+'</button>'+
+    '<button class="btn secondary" type="button" id="readBtn" aria-pressed="false">'+esc(l.readAloud)+'</button>'+
+    '<button class="btn ghost" type="button" id="otherBtn">'+esc(l.otherTopic)+'</button>'+
+    '<button class="btn ghost" type="button" id="renameBtn">'+esc(l.renameBtn(nm()))+'</button></div>';
+  hint.textContent=l.explain;
+  stepListen=resultsListen;
+  speakLine("comment", [], micUsable() ? resultsListen : null, S.comment);
+  $("readBtn").onclick=function(){
+    var b=this;
+    if(b.getAttribute("aria-pressed")==="true"){ stopVoice(); return; }
+    var text=items.map(function(r){return r[0]+". "+r[1];}).join(" ");
+    var ok=play(text, function(){ b.setAttribute("aria-pressed","false"); b.textContent=L().readAloud; });
+    if(ok){ b.setAttribute("aria-pressed","true"); b.textContent=L().readStop; }
+    else { hint.textContent = S.sound ? L().noTTS : L().needSound; }
+  };
+  $("nextBtn").onclick=function(){ go(3); };
+  $("otherBtn").onclick=function(){ S.results=false; S.topicKey=null; S.customTopic=null; S.reqHeard=""; render(); };
+  $("renameBtn").onclick=goRename;
+}
+
+/* runs a (simulated) search; results and the comment wait for both the search time and the end of the “working” line */
+function startSearch(topic, heardText){
+  stopMic();
+  S.topicKey=topicKeyFor(topic); S.customTopic=S.topicKey ? null : topic;
+  S.reqHeard=heardText; S.results=false;
+  lockPanel();
+  S.thinking=true;
+  hideAlt();
+  hint.textContent="";
+  var timeUp=false, spoken=false;
+  function reveal(){
+    if(!timeUp || !spoken || !S.thinking) return;
+    S.thinking=false; S.results=true; S.comment=pickIdx("comment", L().lines.comment.length);
+    showResults();
+  }
+  speak(lineText("working", pickIdx("working", L().lines.working.length)), function(){ spoken=true; reveal(); });
+  pending=setTimeout(function(){ timeUp=true; reveal(); }, 1800);
+}
+/* voice commands on the results screen */
+var CMD_NEXT=/(^| )(далі|дальше|наступний|наступне|продовжуй|продовжимо|продовжити|продовжуємо|next|continue|go on)( |$)/;
+var CMD_READ=/(^| )(прочитай|прочитайте|прочитати|прочитаєш|зачитай|зачитати|озвуч|озвучте|read)( |$)/;
+var CMD_OTHER=/(^| )(інший запит|інша тема|another request|another topic|something else)( |$)/;
+function hasLead(s){ var t=normWords(s).trim(), f=topicFrom(s); return !!f && f!==t; }
+var CMD_RENAME_A=/(звертання|ім’я|ім'я|назву|назва|name)/, CMD_RENAME_B=/(змін|помін|інш|нов|change|rename|another|new|different)/;
+/* from the results, changing the name opens the fine-tuning step with the name field ready */
+function goRename(){ stopMic(); stopVoice(); speakToken++; S.tuneName="change"; go(3); }
+function resultsListen(){
+  if(S.step!==2 || !S.results || S.thinking) return;
+  var ok=listen({btn:null,
+    onFinal:function(alts){
+      for(var k=0;k<alts.length;k++){
+        var a=alts[k], rest=afterWake(a), cmd = rest!==null ? rest : normWords(a).trim();
+        var short = cmd.split(" ").length<=4;
+        if(cmd.split(" ").length<=5 && CMD_RENAME_A.test(cmd) && CMD_RENAME_B.test(cmd)){ goRename(); return true; }
+        if(short && CMD_NEXT.test(cmd)){ stopMic(); go(3); return true; }
+        if(short && CMD_READ.test(cmd)){ stopMic(); var rb=$("readBtn"); if(rb && rb.getAttribute("aria-pressed")!=="true") rb.click(); return true; }
+        if(short && CMD_OTHER.test(cmd)){ stopMic(); S.results=false; S.topicKey=null; S.customTopic=null; S.reqHeard=""; render(); return true; }
+        var topic = rest!==null ? topicFrom(rest) : (hasLead(cmd) ? topicFrom(cmd) : "");
+        if(topic){ if(rest!==null) S.viaVoice=true; startSearch(topic, a); return true; }
+      }
+      return false;
+    },
+    onStop:function(code){ hint.textContent=micStopMsg(code); }
+  });
+  if(ok) hint.textContent=L().resultsHint;
+}
+
+/* voice answers on the fine-tuning and decision screens: each spoken word presses the matching button */
+var YES_RE=/(^| )(так|ага|угу|правильно|вірно|точно|звісно|yes|yeah|yep|correct|right)( |$)/,
+    NO_RE=/(^| )(ні|не|неправильно|невірно|no|nope|wrong)( |$)/,
+    CHANGE_RE=/(змін|помін|change|rename)/,
+    RETRY_RE=/(ще раз|спробу|повтор|again|retry|try)/,
+    CMD_PAUSE=/(^| )(пауза|pause)( |$)/,
+    ABOUT_NAME=/(звертання|ім’я|ім'я|назв|name)/,
+    ABOUT_HEARD=/(відгук|чув|почув|реагув|respond|heard|hear|react)/;
+function pressIn(sel){ var e=panel.querySelector(sel); if(e && !e.disabled){ e.click(); return true; } return false; }
+function tuneListen(){
+  if(S.step!==3 || S.tuneName==="change") return;
+  var ok=listen({btn:null,
+    onFinal:function(alts){
+      for(var k=0;k<alts.length;k++){
+        var cmd=normWords(alts[k]).trim();
+        if(!cmd || cmd.split(" ").length>7) continue;
+        if(CMD_PAUSE.test(cmd)){ $("pauseBtn").click(); return true; }
+        if(CMD_NEXT.test(cmd) && !NO_RE.test(cmd)){ pressIn("#tuneNext"); return true; }
+        if(RETRY_RE.test(cmd) && pressIn("#retryBtn")) return true;
+        if(CHANGE_RE.test(cmd)){ pressIn('[data-a="change"]'); return true; }
+        var yes=YES_RE.test(cmd) && !/(^| )(ні|no)( |$)/.test(cmd), no=!yes && NO_RE.test(cmd);
+        if(!yes && !no) continue;
+        /* “так”/“ні” answer the first open question, unless the phrase says which one */
+        var q = ABOUT_HEARD.test(cmd) ? 2 : ABOUT_NAME.test(cmd) ? 1 : (S.tuneName==null ? 1 : 2);
+        if(q===1){ if(yes){ pressIn('[data-a="ok"]'); return false; } pressIn('[data-a="change"]'); return true; }
+        if(S.viaVoice) pressIn(yes ? '[data-h="yes"]' : '[data-h="no"]');
+        return false;
+      }
+      return false;
+    },
+    onStop:function(code){ hint.textContent=micStopMsg(code); }
+  });
+  if(ok) hint.textContent=L().tuneHintVoice;
+}
+function decideListen(){
+  if(S.step!==4) return;
+  var ok=listen({btn:null,
+    onFinal:function(alts){
+      for(var k=0;k<alts.length;k++){
+        var cmd=normWords(alts[k]).trim();
+        if(!cmd || cmd.split(" ").length>7) continue;
+        if(CMD_PAUSE.test(cmd)){ $("pauseBtn").click(); return true; }
+        if(/(не вимик|не вимкн|don't turn|do not turn)/.test(cmd)){ pressIn("#keepBtn"); return true; }
+        if(/(вимкн|вимик|turn (it )?off|switch off|(^| )off( |$))/.test(cmd) || /(^| )(ні|no)( |$)/.test(cmd)){ pressIn("#offBtn"); return true; }
+        if(/(залиш|лиши|увімкн|keep|leave)/.test(cmd) || YES_RE.test(cmd)){ pressIn("#keepBtn"); return true; }
+      }
+      return false;
+    },
+    onStop:function(code){ hint.textContent=micStopMsg(code); }
+  });
+  if(ok) hint.textContent=L().decideHintVoice;
+}
+
+/* fine-tuning: is the name right, and did Claude respond to the voice */
+function renderTune(auto){
+  var l=L(), n=nm(), h='';
+  stepListen=tuneListen;
+  h+='<div class="tune"><div class="q"><p class="q-title">'+esc(l.tuneNameQ(n))+'</p>';
+  if(S.tuneName==="change"){
+    h+=customHTML("tname", l.tuneNewName, l.phName, l.save);
+  } else {
+    h+='<div class="chips"><button type="button" class="chip" data-a="ok" aria-pressed="'+(S.tuneName==="ok"?"true":"false")+'">'+esc(l.tuneYes)+'</button>'+
+       '<button type="button" class="chip" data-a="change" aria-pressed="false">'+esc(l.tuneChange)+'</button></div>';
+    if(S.tuneName==="changed") h+='<p class="q-note">'+esc(l.tuneChanged(n))+'</p>';
+  }
+  h+='</div><div class="q"><p class="q-title">'+esc(l.tuneHeardQ)+'</p>';
+  if(!S.viaVoice){
+    h+='<p class="q-note">'+esc(l.tuneTyped)+'</p>';
+  } else {
+    h+='<div class="chips"><button type="button" class="chip" data-h="yes" aria-pressed="'+(S.tuneHeard==="yes"?"true":"false")+'">'+esc(l.tuneYes)+'</button>'+
+       '<button type="button" class="chip" data-h="no" aria-pressed="'+(S.tuneHeard==="no"?"true":"false")+'">'+esc(l.tuneNo)+'</button></div>';
+    if(S.tuneHeard==="no") h+='<p class="q-note">'+esc(l.tuneTip)+'</p>';
+  }
+  if(!S.viaVoice || S.tuneHeard==="no" || S.tuneName==="changed")
+    h+='<button class="btn secondary q-btn" type="button" id="retryBtn">'+esc(S.tuneName==="changed" ? l.tuneRetryNew : l.tuneRetry)+'</button>';
+  h+='</div></div><div class="actions"><button class="btn primary" type="button" id="tuneNext">'+esc(l.next)+'</button></div>';
+  panel.innerHTML=h;
+
+  var ac=panel.querySelectorAll("[data-a]");
+  for(var i=0;i<ac.length;i++) ac[i].onclick=function(){
+    var a=this.getAttribute("data-a");
+    if(a==="change"){ stopVoice(); speakToken++; S.tuneName=a; renderTune(false); speakLine("askName", [], resumeListen); return; }
+    S.tuneName=a; renderTune(false);
+    /* once the name is confirmed, the next open question is read out */
+    if(a==="ok" && S.tuneHeard==null) speak(S.viaVoice ? L().tuneHeardQ : L().tuneTyped, resumeListen);
+  };
+  var hc=panel.querySelectorAll("[data-h]");
+  for(var j=0;j<hc.length;j++) hc[j].onclick=function(){ S.tuneHeard=this.getAttribute("data-h"); renderTune(false); if(S.tuneHeard==="no") speak(L().tuneTip, resumeListen); };
+  if($("retryBtn")) $("retryBtn").onclick=function(){
+    stopMic();
+    S.results=false; S.topicKey=null; S.customTopic=null; S.reqHeard=""; S.tuneHeard=null;
+    if(S.tuneName==="changed") S.tuneName=null;
+    go(2);
+  };
+  $("tuneNext").onclick=function(){ stopMic(); go(4); };
+
+  if(S.tuneName==="change"){
+    var tin=$("tnameIn");
+    function save(v){
+      var nn=nameFor(v); if(!nn) return;
+      stopMic(); S.name=nn; S.tuneName="changed";
+      renderScript(); renderTune(false);
+      /* after confirming the new name, the fine-tuning questions are read out again */
+      speakLine("nameOk", [nn], function(){ if(S.step===3) speakLine("tune", [S.name], resumeListen); });
+    }
+    $("tnameForm").onsubmit=function(e){ e.preventDefault(); save(tin.value); };
+    stepListen=function(){
+      if(S.step!==3 || S.tuneName!=="change") return;
+      listen({btn:$("tnameMic"),
+        onInterim:function(t){ tin.value=t; },
+        onFinal:function(alts){ var nn=cleanName(alts[0]); if(!nn) return false; save(nn); return true; },
+        onStop:function(code){ $("tnameMsg").textContent=micStopMsg(code); }
+      });
+    };
+    micToggle("tname");
+    if(!micUsable()) tin.focus();
+    else if(auto) stepListen();
+  }
+}
+
+/* ---------- sound & mic check ---------- */
+function srSupported(){ return !!(window.SpeechRecognition || window.webkitSpeechRecognition); }
+function inAppViewer(){
+  var ua=navigator.userAgent||"";
+  if(/; wv\)/.test(ua) || /Claude/i.test(ua)) return true;
+  var ios=/iPhone|iPad|iPod/.test(ua) || (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
+  return ios && !/Safari\//.test(ua);
+}
+function micPolicyBlocked(){
+  try{
+    var pol=document.permissionsPolicy || document.featurePolicy;
+    return !!(pol && pol.allowsFeature && !pol.allowsFeature("microphone"));
+  }catch(e){ return false; }
+}
+/* after a not-allowed error, work out who blocked the mic: the viewer frame, the site setting, an unanswered prompt, or the phone */
+function micBlockReason(cb){
+  if(micPolicyBlocked()){ cb("policy"); return; }
+  try{
+    navigator.permissions.query({name:"microphone"}).then(function(p){
+      cb(p.state==="denied" ? "site" : p.state==="prompt" ? "ask" : "device");
+    }, function(){ cb("denied"); });
+  }catch(e){ cb("denied"); }
+}
+function ckSettle(){ renderCheck(); $("ckLive").textContent=L().ck.micLabel+": "+micState()[1]; }
+/* a phrase heard for a mic check: show it, confirm it out loud, then carry on with the step */
+/* a phrase that only makes sense as a mic test (“ти мене чуєш?”) counts as a successful mic check */
+function micHeardDirect(t){
+  var heard=String(t).trim(); if(!heard) return false;
+  if(!CHK.active) chkStart();
+  micSuccess(heard);
+  return true;
+}
+/* after a check the assistant confirms the result out loud, the check section folds away,
+   and the flow carries on from the current step */
+function afterCheck(text){
+  var tok=++CK.afterToken;
+  function carryOn(){
+    if(tok!==CK.afterToken) return;
+    sectionOpen($("check"), false);
+    var calm=window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    try{ window.scrollTo({top:0, behavior: calm?"auto":"smooth"}); }catch(e){ window.scrollTo(0,0); }
+    if(S.paused || S.thinking) return;
+    if(S.cur && S.step<5){ var c=S.cur; speakLine(c.key, c.args, c.done, c.idx); }
+    else resumeListen();
+  }
+  if(!text || S.paused || S.thinking || !canSpeak()){ carryOn(); return; }
+  speak(text, carryOn);
+}
+function soundState(){
+  var c=L().ck;
+  return {idle:["idle",c.soundIdle], testing:["wait",c.soundTesting], ok:["ok",c.soundOk], fail:["bad",c.soundFail]}[CK.tts];
+}
+function micState(){
+  var c=L().ck;
+  if(!srSupported()) return ["bad", c.micNo];
+  if(micPolicyBlocked()) return ["bad", c.micPolicy];
+  switch(CK.mic){
+    case "testing": return ["wait", CK.micHeard ? c.micHearing(CK.micHeard) : c.micTesting];
+    case "ok": return ["ok", CK.micHeard ? c.micOk(CK.micHeard) : c.micOkSound];
+    case "denied": return ["bad", c.micDenied];
+    case "policy": return ["bad", c.micPolicy];
+    case "site": return ["bad", c.micSite];
+    case "ask": return ["warn", c.micAsk];
+    case "device": return ["bad", c.micDevice];
+    case "service": return ["bad", c.micService];
+    case "nospeech": return ["warn", c.micNoSpeech];
+    case "nodevice": return ["bad", c.micNoDevice];
+    case "network": return ["bad", c.micNetwork];
+    case "error": return ["bad", c.micError];
+    default: return ["idle", c.micIdle];
+  }
+}
+function ckRow(st, label, text){
+  var g={ok:"✓", warn:"!", bad:"✕", wait:"…", idle:"·"}[st];
+  return '<li class="ck-'+st+'"><span class="ck-dot" aria-hidden="true">'+g+'</span><div><div class="ck-label">'+esc(label)+'</div><div class="ck-text">'+esc(text)+'</div></div></li>';
+}
+function renderCheck(){
+  var c=L().ck, rows=[];
+  $("checkTitle").textContent=c.title;
+  $("checkNote").textContent=c.note;
+  var sb=$("ckSoundBtn"), mb=$("ckMicBtn");
+  sb.textContent=c.soundBtn; sb.disabled=!hasTTS || CK.tts==="testing";
+  mb.textContent=(CK.mic==="testing") ? c.micStopBtn : c.micBtn; mb.setAttribute("aria-pressed", (CK.mic==="testing")?"true":"false"); mb.disabled=!srSupported();
+  if(inAppViewer()) rows.push(ckRow("warn", c.whereLabel, c.whereApp));
+  if(!hasTTS) rows.push(ckRow("bad", c.voiceLabel, c.ttsNo));
+  else {
+    if(!voices.length) rows.push(ckRow("idle", c.voiceLabel, c.voicesUnknown));
+    else { var v=pickVoice(), f=fallbackVoice(); rows.push(v ? ckRow("ok", c.voiceLabel, c.voiceYes(v.name)) : ckRow("warn", c.voiceLabel, c.voiceNo(f?f.name:""))); }
+    var s=soundState(); rows.push(ckRow(s[0], c.soundLabel, s[1]));
+  }
+  var m=micState(); rows.push(ckRow(m[0], c.micLabel, m[1]));
+  $("checkList").innerHTML=rows.join("");
+}
+/* ---------- the check session: sound, then mic (or the other way round), then back to the setup ----------
+   While it runs, the flow is on hold: the assistant asks the questions, and answers only drive the check. */
+var CHK={active:false, soundDone:false, micDone:false, ask:null};
+function chkStart(){
+  CHK.active=true; CHK.soundDone=false; CHK.micDone=false; CHK.ask=null;
+  stopVoice(); speakToken++; stopMic(); clearTimeout(pending);
+  sectionOpen($("check"), true);
+}
+function chkOpen(){
+  if(S.thinking) return;
+  if(!CHK.active) chkStart();
+  CHK.ask="choose";
+  speak(L().ck.askWhich, chkListen);
+}
+function chkListen(){
+  if(!CHK.active) return;
+  listen({btn:null, chk:true,
+    onFinal:function(alts){ return chkAnswer(alts[0]); },
+    onStop:function(code){ $("ckLive").textContent=micStopMsg(code); }
+  });
+}
+function chkAnswer(t){
+  var c=normWords(t).trim(); if(!c) return false;
+  if(CHK.ask==="micphrase"){ micSuccess(String(t).trim()); return true; }
+  if(/(поверт|поверн|назад|go back|^back)/.test(c) && !/(^| )(ні|не|no)( |$)/.test(c)){ chkEnd(); return true; }
+  if(CHK.ask==="choose" || CHK.ask==="return"){
+    if(/(обидв|both|everything)/.test(c) || /(^| )(все|усе|all)( |$)/.test(c)){ runSoundCheck(); return true; }
+    if(/(звук|sound)/.test(c)){ runSoundCheck(); return true; }
+    if(/(мікрофон|mic)/.test(c)){ runMicCheck(); return true; }
+  }
+  var yes=YES_RE.test(c) && !/(^| )(ні|no)( |$)/.test(c), no=!yes && NO_RE.test(c);
+  if(!yes && !no) return false;
+  if(CHK.ask==="mic" || CHK.ask==="retryMic"){ if(yes) runMicCheck(); else askReturn(); return true; }
+  if(CHK.ask==="sound"){ if(yes) runSoundCheck(); else askReturn(); return true; }
+  if(CHK.ask==="return"){ if(yes) chkEnd(); else chkStay(); return true; }
+  return false;
+}
+function askReturn(){ CHK.ask="return"; speak(L().ck.askReturn, chkListen); }
+function chkStay(){ CHK.ask="choose"; speak(L().ck.stayHere, chkListen); }
+/* after a successful check: confirm it, then offer the other check, or the way back once both are done */
+function chkNext(line){
+  var next = !CHK.soundDone ? "sound" : !CHK.micDone ? "mic" : "return";
+  CHK.ask=next;
+  speak(line+" "+(next==="sound" ? L().ck.askSound : next==="mic" ? L().ck.askMic : L().ck.askReturn), chkListen);
+}
+function chkEnd(){
+  if(!CHK.active) return;
+  CHK.active=false; CHK.ask=null; anaStop(); clearTimeout(CK.micTimer);
+  stopMic();
+  sectionOpen($("check"), false);
+  var calm=window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  try{ window.scrollTo({top:0, behavior: calm?"auto":"smooth"}); }catch(e){ window.scrollTo(0,0); }
+  if(S.paused) return;
+  if(S.cur && S.step<5){ var c=S.cur; speakLine(c.key, c.args, c.done, c.idx); }
+  else resumeListen();
+}
+function runSoundCheck(){
+  if(!hasTTS) return;
+  if(!CHK.active) chkStart();
+  anaStop(); clearTimeout(CK.micTimer); CHK.ask=null;
+  if(!S.sound){ S.sound=true; updateChrome(); }
+  stopMic(); stopVoice(); speakToken++;
+  var my=++CK.ttsToken, t0=Date.now(), started=false, ended=false, t=null;
+  CK.tts="testing"; renderCheck();
+  showCaption(L().ck.sample); setOrb("speaking");
+  function fin(ok){
+    if(ended || my!==CK.ttsToken) return;
+    ended=true; clearTimeout(t);
+    CK.tts = ok ? "ok" : "fail"; renderCheck();
+    $("ckLive").textContent=L().ck.soundLabel+": "+soundState()[1];
+    captureOff();
+    if(!CHK.active) return;
+    if(ok){ CHK.soundDone=true; chkNext(L().ck.saySoundOk); }
+    else { CHK.ask="return"; speak(L().ck.saySoundFail+" "+L().ck.askReturn, chkListen); }
+  }
+  t=setTimeout(function(){ fin(started); }, 7000);
+  var run=function(){
+    say(L().ck.sample, {
+      start:function(){ started=true; },
+      end:function(){ fin(started || Date.now()-t0>600); },
+      error:function(code){ if(code!=="interrupted" && code!=="canceled") fin(false); }
+    });
+  };
+  try{ if(voiceAllowed()) run(); else captureOn().then(run); }catch(e){ fin(false); }
+}
+/* mic check: a short pause, \u201cскажіть будь-що\u201d on screen and out loud, then any voice or sound above the room noise counts */
+function runMicCheck(){
+  if(!CHK.active) chkStart();
+  anaStop(); clearTimeout(CK.micTimer); CHK.ask=null;
+  stopMic(); stopVoice(); speakToken++;
+  CK.mic="testing"; CK.micHeard=""; renderCheck();
+  showCaption(L().ck.sayAnything);
+  setTimeout(function(){
+    if(!CHK.active || CK.mic!=="testing") return;
+    speak(L().ck.sayAnything, function(){
+      if(!CHK.active || CK.mic!=="testing") return;
+      whenQuiet(function(){
+        if(!CHK.active || CK.mic!=="testing") return;
+        anaListen(function(){ micSuccess(""); }, micNone, function(){
+          /* no direct mic access here: fall back to speech recognition, where any phrase counts */
+          CHK.ask="micphrase"; chkListen();
+          CK.micTimer=setTimeout(function(){ if(CHK.ask==="micphrase") micNone(); }, 10000);
+        });
+      });
+    });
+  }, 500);
+}
+function micSuccess(text){
+  anaStop(); clearTimeout(CK.micTimer); stopMic();
+  CK.mic="ok"; CK.micHeard=text||""; ckSettle(); CHK.micDone=true;
+  chkNext(text ? L().ck.sayMicOk(text) : L().ck.sayMicHeard);
+}
+function micNone(){
+  anaStop(); clearTimeout(CK.micTimer); stopMic();
+  CK.mic="nospeech"; ckSettle();
+  CHK.ask="retryMic";
+  speak(L().ck.sayMicNone, chkListen);
+}
+/* the input level, straight from the mic: hears any sound, not only words */
+var ANA={ctx:null, stream:null, raf:0, timer:0};
+function anaStop(){
+  try{ cancelAnimationFrame(ANA.raf); }catch(e){}
+  clearTimeout(ANA.timer);
+  if(ANA.stream){ try{ ANA.stream.getTracks().forEach(function(tr){ tr.stop(); }); }catch(e){} ANA.stream=null; }
+  if(ANA.ctx){ try{ ANA.ctx.close(); }catch(e){} ANA.ctx=null; }
+  var lv=$("ckLevel"); if(lv && !lv.hidden){ lv.hidden=true; micLive(false); setOrb(restState()); }
+}
+function anaListen(onSound, onTimeout, onFail){
+  var AC=window.AudioContext || window.webkitAudioContext;
+  if(!AC || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || micPolicyBlocked()){ onFail(); return; }
+  navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+    if(!CHK.active || CK.mic!=="testing"){ stream.getTracks().forEach(function(tr){ tr.stop(); }); return; }
+    var ctx; try{ ctx=new AC(); }catch(e){ stream.getTracks().forEach(function(tr){ tr.stop(); }); onFail(); return; }
+    try{ ctx.resume(); }catch(e){}
+    var an=ctx.createAnalyser(); an.fftSize=1024;
+    ctx.createMediaStreamSource(stream).connect(an);
+    ANA.ctx=ctx; ANA.stream=stream;
+    var buf=new Float32Array(an.fftSize), t0=performance.now(), last=t0, base=0, n=0, hot=0;
+    $("ckLevel").hidden=false; micLive(true); setOrb("listening");
+    function tick(now){
+      if(!ANA.stream) return;
+      an.getFloatTimeDomainData(buf);
+      var s=0; for(var i=0;i<buf.length;i++) s+=buf[i]*buf[i];
+      var rms=Math.sqrt(s/buf.length);
+      $("ckLevelBar").style.width=Math.min(100, Math.round(rms*400))+"%";
+      if(now-t0<400){ base+=rms; n++; }
+      else {
+        var thr=Math.max(0.01, (n ? base/n : 0)*2.5);
+        hot = rms>thr ? hot+(now-last) : Math.max(0, hot-(now-last));
+        if(hot>150){ anaStop(); onSound(); return; }
+      }
+      last=now;
+      ANA.raf=requestAnimationFrame(tick);
+    }
+    ANA.raf=requestAnimationFrame(tick);
+    ANA.timer=setTimeout(function(){ if(!ANA.stream) return; anaStop(); onTimeout(); }, 10000);
+  }, function(){ onFail(); });
+}
+/* the buttons in the section: the same check, started by tap; tapping the mic button again cancels */
+function testSound(){ runSoundCheck(); }
+function testMic(){
+  if(CK.mic==="testing" && CHK.active){ anaStop(); clearTimeout(CK.micTimer); CK.mic="idle"; ckSettle(); askReturn(); return; }
+  runMicCheck();
+}
+/* opening the section by tap starts a check; closing it goes back to the setup */
+$("check").addEventListener("toggle", function(){
+  if(this.open && !CHK.active && !S.thinking && !S.paused) chkOpen();
+  else if(!this.open && CHK.active) chkEnd();
+});
+$("ckSoundBtn").addEventListener("click", testSound);
+$("ckMicBtn").addEventListener("click", testMic);
+$("voiceNoteBtn").addEventListener("click", function(){
+  var d=$("check"); d.open=true;
+  var calm=window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  try{ d.scrollIntoView({behavior: calm ? "auto" : "smooth", block:"start"}); }catch(e){ d.scrollIntoView(); }
+  try{ $("ckSoundBtn").focus({preventScroll:true}); }catch(e){}
+});
+
+/* ---------- events ---------- */
+altBtn.addEventListener("click", function(){
+  if(!S.cur) return;
+  var len=L().lines[S.cur.key].length;
+  var idx=(S.cur.idx+1)%len;
+  if(S.cur.key==="comment") S.comment=idx;
+  speakLine(S.cur.key, S.cur.args, S.cur.done, idx);
+});
+/* ---------- understanding what was said ---------- */
+function micUsable(){ return !!SR && !micPolicyBlocked(); }
+function normWords(s){ return " "+String(s).toLowerCase().replace(/[^a-zа-яіїєґ0-9’']+/g," ").replace(/\s+/g," ").trim()+" "; }
+/* word stem for loose matching: “Оксано” also matches “Оксана”, “Марко” matches “Марка” */
+function stemOf(w){ w=normWords(w).trim(); if(w.length>5) return w.slice(0, w.length-2); if(w.length>3 && /[аоеиіуюяєїaeiouy]$/.test(w)) return w.slice(0,-1); return w; }
+function wakeVariants(){
+  var n=nm(), vs=[stemOf(n)];
+  if(/claude|клод/i.test(n)) vs=vs.concat(["клод","клауд","клот","claude","claud","cloud","clod"]);
+  return vs;
+}
+/* the words after the name, or null when the name isn't in the phrase */
+function afterWake(txt){
+  var t=normWords(txt), vs=wakeVariants(), best=-1, end=-1;
+  for(var i=0;i<vs.length;i++){
+    if(!vs[i]) continue;
+    var p=t.indexOf(" "+vs[i]);
+    if(p!==-1 && (best===-1 || p<best)){ best=p; var e=t.indexOf(" ", p+1+vs[i].length); end = e===-1 ? t.length : e; }
+  }
+  return best===-1 ? null : t.slice(end).trim();
+}
+function heardWake(txt){ return afterWake(txt)!==null; }
+/* “знайди мені інфу щодо шахів” → “шахів”: strips the request wording, keeps the topic */
+function topicFrom(s){
+  var t=normWords(s).trim();
+  var lead=/^((будь ласка|ну|а|слухай|так|ok|okay|please|hey) )*(знайди|знайдіть|пошукай|пошукайте|шукай|розкажи|розкажіть|покажи|покажіть|поясни|поясніть|дізнайся|що таке|що за|хто такий|хто така|хто такі|хочу дізнатися|я хочу дізнатися|хочу знати|find|search for|search|look up|tell me|show me|explain|what is|what's|whats|who is|i want to know|i'd like to know)( (мені|нам|me|us))?( (будь ласка|please))?( (інфу|інформацію|інформації|щось|все|усе|дані|статті|матеріали|info|information|something|anything|everything|stuff|more))?( (щодо|стосовно|про|по|на тему|відносно|з приводу|about|on|regarding|for))?( |$)/;
+  return t.replace(lead,"").trim();
+}
+/* a typed or spoken name that matches a ready-made option picks that option; otherwise it becomes the custom name */
+function nameFor(v){
+  var t=normWords(v), ns=L().names;
+  for(var i=0;i<ns.length;i++){ if(t.indexOf(" "+normWords(ns[i]).trim()+" ")!==-1) return ns[i]; }
+  var s=String(v).replace(/[.!?…,;:«»"“”]+/g," ").replace(/\s+/g," ").trim().split(" ").slice(0,3).join(" ");
+  return s ? s.charAt(0).toUpperCase()+s.slice(1) : "";
+}
+/* “називай мене Кент” → “Кент” */
+function cleanName(t){
+  var s=normWords(t).trim().replace(/^((будь ласка|давай|хай|нехай|ну|ок|окей|мабуть|ok|okay|well|so|um|uh|let's|lets) )*((називай|називайте|клич|кличте|звертайся|звертайтеся|буде|будеш|ти будеш|тебе звати|твоє ім’я|твоє ім'я|call me|call you|i'll call you|i will call you|your name is|you are|go with)( (мене|тебе|до мене|до тебе))?( |$))?/,"").trim();
+  if(!s) return "";
+  return nameFor(s.split(" ").slice(0,2).join(" "));
+}
+/* a topic like “гітару” maps to the matching ready-made topic */
+function topicKeyFor(v){
+  var t=normWords(v), tp=L().topics;
+  for(var i=0;i<tp.length;i++){ if(t.indexOf(" "+stemOf(tp[i][1]))!==-1) return tp[i][0]; }
+  return null;
+}
+orb.addEventListener("click", function(){
+  var b=panel.querySelector(".mic");
+  if(b && !b.disabled){ b.click(); return; }
+  /* screens without a mic button (the results) pause and resume listening from the circle */
+  if(!stepListen || S.paused) return;
+  if(lis || rec){ stopMic(); S.micPaused=true; setOrb(restState()); }
+  else { S.micPaused=false; stopVoice(); speakToken++; stepListen(); }
+});
+$("langBtn").addEventListener("click", function(){
+  S.lang = S.lang==="uk" ? "en" : "uk";
+  S.paused=false;
+  stopVoice(); stopMic(); clearTimeout(pending); speakToken++;
+  if(S.thinking){ S.thinking=false; S.results=true; S.comment=rnd(T[S.lang].lines.comment.length); }
+  render();
+});
+/* pause: stops the voice, the mic and the automatic steps; resume picks the current step up again */
+function updatePause(){
+  var b=$("pauseBtn"), l=L();
+  b.hidden = S.step>=5;
+  b.classList.toggle("wide", S.step===0);
+  b.setAttribute("aria-pressed", S.paused?"true":"false");
+  $("pauseLabel").textContent = S.paused ? l.resume : l.pause;
+}
+$("pauseBtn").addEventListener("click", function(){
+  if(!S.paused){
+    S.paused=true;
+    stopVoice(); speakToken++; stopMic(); clearTimeout(pending); clearTimeout(speakTimer);
+    if(S.thinking){ S.thinking=false; S.results=true; S.comment=rnd(L().lines.comment.length); }
+    lockPanel(); hideAlt();
+    setOrb("off");
+    hint.textContent=L().pausedHint;
+    updatePause();
+  } else {
+    S.paused=false;
+    render();
+  }
+});
+$("soundBtn").addEventListener("click", function(){
+  S.sound=!S.sound;
+  if(!S.sound) stopVoice();
+  updateChrome();
+});
+
+render();
+})();
+</script>
+</body>
+</html>
